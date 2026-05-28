@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from .config import KrogerConfig
 from .auth import KrogerAuthClient
-from .models import Product
+from .models import Product, ProductDetail, ProductItemDetail
 from .exceptions import (
     KrogerAuthError,
     KrogerError,
@@ -129,6 +129,52 @@ class KrogerClient:
             except Exception:
                 continue
         return products
+
+
+    def get_product_detail(
+        self,
+        product_id: str,
+        location_id: Optional[str] = None,
+    ) -> Optional[ProductDetail]:
+        if not product_id.strip():
+            raise KrogerValidationError("Product ID is required")
+
+        params = {"filter.productId": product_id.strip()}
+        loc = location_id or self.config.default_location_id
+        if loc:
+            params["filter.locationId"] = loc
+
+        resp = self._request("GET", "/v1/products", auth_mode="app", params=params)
+        products = resp.json().get("data", [])
+        if not products:
+            return None
+        return self._product_detail_from_response(products[0])
+
+    def _product_detail_from_response(self, item: dict) -> ProductDetail:
+        product_items = item.get("items") or []
+        return ProductDetail(
+            upc=item.get("upc", ""),
+            product_id=item.get("productId", ""),
+            description=item.get("description", ""),
+            brand=item.get("brand"),
+            categories=item.get("categories"),
+            items=[
+                ProductItemDetail(
+                    item_id=product_item.get("itemId"),
+                    size=product_item.get("size"),
+                    sold_by=product_item.get("soldBy"),
+                    price=product_item.get("price"),
+                    fulfillment=product_item.get("fulfillment"),
+                    inventory=product_item.get("inventory"),
+                )
+                for product_item in product_items
+            ],
+            images=item.get("images"),
+            aisle_locations=item.get("aisleLocations"),
+            temperature=item.get("temperature"),
+            nutrition=item.get("nutrition"),
+            raw=item,
+        )
 
     def add_to_cart(self, upc: str, quantity: int = 1, modality: str = "PICKUP") -> bool:
         if len(upc) != 13 or not upc.isdigit():

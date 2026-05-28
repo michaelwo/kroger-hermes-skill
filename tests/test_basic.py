@@ -225,6 +225,109 @@ def test_search_uses_app_token(tmp_path):
     assert calls == ["app"]
 
 
+def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "upc": "0001111040101",
+                        "productId": "0001111040101",
+                        "description": "Kroger Vitamin D Whole Milk Gallon",
+                        "brand": "Kroger",
+                        "categories": ["Dairy"],
+                        "items": [
+                            {
+                                "itemId": "0001111040101",
+                                "size": "1 gal",
+                                "soldBy": "UNIT",
+                                "price": {"regular": 3.29},
+                                "fulfillment": {"csp": True},
+                                "inventory": {"stockLevel": "HIGH"},
+                            }
+                        ],
+                        "images": [{"perspective": "front"}],
+                        "aisleLocations": [{"description": "Dairy"}],
+                        "temperature": {"indicator": "Refrigerated"},
+                        "nutrition": {"calories": "150"},
+                    }
+                ]
+            }
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append((method, url, headers, kwargs))
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    detail = client.get_product_detail("0001111040101", location_id="01400943")
+
+    assert detail.product_id == "0001111040101"
+    assert detail.description == "Kroger Vitamin D Whole Milk Gallon"
+    assert detail.brand == "Kroger"
+    assert detail.categories == ["Dairy"]
+    assert detail.items[0].size == "1 gal"
+    assert detail.items[0].price == {"regular": 3.29}
+    assert detail.items[0].inventory == {"stockLevel": "HIGH"}
+    assert detail.images == [{"perspective": "front"}]
+    assert detail.aisle_locations == [{"description": "Dairy"}]
+    assert detail.temperature == {"indicator": "Refrigerated"}
+    assert detail.nutrition == {"calories": "150"}
+    assert detail.raw["upc"] == "0001111040101"
+
+    method, url, headers, kwargs = calls[0]
+    assert method == "GET"
+    assert url == "https://api.kroger.com/v1/products"
+    assert headers["Authorization"] == "Bearer app-token"
+    assert kwargs["params"] == {
+        "filter.productId": "0001111040101",
+        "filter.locationId": "01400943",
+    }
+
+
+def test_get_product_detail_returns_none_when_not_found(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": []}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.get_product_detail("0001111040101") is None
+
+
+def test_get_product_detail_validates_product_id(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Product ID is required"):
+        client.get_product_detail("   ")
+
+
 def test_cart_401_refreshes_user_token_once(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     tokens = []

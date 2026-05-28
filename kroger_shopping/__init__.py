@@ -7,7 +7,7 @@ A professional, layered client for the Kroger Developer APIs.
 from .client import KrogerClient
 from .config import KrogerConfig
 from .auth import KrogerAuthClient
-from .models import Product, CartItem, TokenSet
+from .models import Product, ProductDetail, ProductItemDetail, CartItem, TokenSet
 from .exceptions import (
     KrogerError,
     KrogerAuthError,
@@ -21,6 +21,8 @@ __all__ = [
     "KrogerConfig",
     "KrogerAuthClient",
     "Product",
+    "ProductDetail",
+    "ProductItemDetail",
     "CartItem",
     "TokenSet",
     "KrogerError",
