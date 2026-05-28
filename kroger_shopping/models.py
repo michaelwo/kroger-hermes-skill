@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Any
 
@@ -46,6 +46,60 @@ class ProductDetail:
     temperature: Optional[dict] = None
     nutrition: Optional[dict] = None
     raw: Optional[dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class IngredientPreferenceRule:
+    """Keyword rule for screening product ingredient text."""
+    keyword: str
+    label: str
+    penalty: float = 15.0
+
+
+@dataclass
+class PreferenceProfile:
+    """Weights and ingredient rules used to rank product recommendations."""
+    simple_truth_bonus: float = 25.0
+    kroger_rank_weight: float = 0.25
+    nutrition_data_bonus: float = 3.0
+    health_score_weight: float = 0.2
+    ingredient_rules: list[IngredientPreferenceRule] = field(
+        default_factory=lambda: [
+            IngredientPreferenceRule("high fructose corn syrup", "high-fructose corn syrup"),
+            IngredientPreferenceRule("aspartame", "aspartame"),
+            IngredientPreferenceRule("sucralose", "sucralose"),
+            IngredientPreferenceRule("acesulfame", "acesulfame potassium"),
+            IngredientPreferenceRule("red 40", "Red 40 dye"),
+            IngredientPreferenceRule("yellow 5", "Yellow 5 dye"),
+            IngredientPreferenceRule("yellow 6", "Yellow 6 dye"),
+            IngredientPreferenceRule("blue 1", "Blue 1 dye"),
+            IngredientPreferenceRule("sodium benzoate", "sodium benzoate"),
+            IngredientPreferenceRule("potassium sorbate", "potassium sorbate"),
+            IngredientPreferenceRule("bha", "BHA"),
+            IngredientPreferenceRule("bht", "BHT"),
+            IngredientPreferenceRule("tbhq", "TBHQ"),
+            IngredientPreferenceRule("partially hydrogenated", "partially hydrogenated oil"),
+            IngredientPreferenceRule("hydrogenated oil", "hydrogenated oil"),
+        ]
+    )
+
+
+@dataclass
+class ProductPreferenceScore:
+    """Preference score and explainability metadata for a product."""
+    total: float
+    reasons: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    inspected_fields: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RankedProduct:
+    """A Kroger product ranked with local preference scoring."""
+    product: Product
+    detail: Optional[ProductDetail]
+    preference_score: ProductPreferenceScore
+    original_kroger_rank: int
 
 
 @dataclass

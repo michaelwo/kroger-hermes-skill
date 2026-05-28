@@ -16,6 +16,7 @@ def _help_text():
     return (
         "Kroger commands:\n"
         "- /kroger search <term>\n"
+        "- /kroger recommend <term>\n"
         "- /kroger add <UPC> [qty]\n"
         "- /kroger login\n"
         "- /kroger code <authorization-code>\n"
@@ -49,6 +50,31 @@ async def kroger_command(ctx, subcommand: str = None, *args):
             return "\n".join(lines)
         except KrogerError as e:
             return f"Error: {e}"
+
+    if subcommand == "recommend":
+        if not args:
+            return "Usage: /kroger recommend <term>"
+        term = " ".join(args)
+        try:
+            results = client.ranked_search_products(term, limit=6)
+            if not results:
+                return "No products found."
+            lines = []
+            for r in results:
+                product = r.product
+                price = f"${product.price}" if product.price else "N/A"
+                reasons = "; ".join(r.preference_score.reasons[:3]) or "No preference signals available"
+                warnings = f" Warning: {'; '.join(r.preference_score.warnings[:1])}" if r.preference_score.warnings else ""
+                lines.append(
+                    f"**{product.description}** - {product.brand or ''} | {price} | `{product.upc}` "
+                    f"| score {r.preference_score.total:.2f} | {reasons}{warnings}"
+                )
+            return "\n".join(lines)
+        except KrogerValidationError as e:
+            return f"Validation error: {e}"
+        except KrogerError as e:
+            return f"Error: {e}"
+
 
     if subcommand == "add":
         if not args:

@@ -9,7 +9,7 @@ from kroger_shopping import KrogerAuthError, KrogerValidationError
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
-from kroger_shopping.models import CartItem, CartModality, TokenSet
+from kroger_shopping.models import CartItem, CartModality, PreferenceProfile, Product, ProductDetail, TokenSet
 
 
 def make_config(tmp_path):
@@ -805,3 +805,167 @@ def test_cart_401_refreshes_user_token_once(tmp_path):
     assert client.add_to_cart("0001111050434", 1) is True
     assert tokens == ["old", "new"]
     assert session.auth_headers == ["Bearer old-token", "Bearer new-token"]
+
+
+
+def make_product(product_id, brand="Kroger", description="Test Product"):
+    return Product(
+        upc=product_id,
+        product_id=product_id,
+        description=description,
+        brand=brand,
+        price=1.99,
+    )
+
+
+def make_detail(product, ingredients=None, nutrition=None):
+    raw = {
+        "upc": product.upc,
+        "productId": product.product_id,
+        "description": product.description,
+        "brand": product.brand,
+    }
+    if ingredients is not None:
+        raw["food"] = {"ingredients": ingredients}
+    return ProductDetail(
+        upc=product.upc,
+        product_id=product.product_id,
+        description=product.description,
+        brand=product.brand,
+        nutrition=nutrition,
+        raw=raw,
+    )
+
+
+def test_preference_scoring_prefers_simple_truth_over_equivalent_product():
+    client = KrogerClient.__new__(KrogerClient)
+    simple_truth = make_product("0001111040101", brand="Simple Truth Organic")
+    kroger = make_product("0001111040102", brand="Kroger")
+
+    simple_score = client._score_product_preference(
+        simple_truth,
+        make_detail(simple_truth, ingredients="Organic milk"),
+        original_rank=2,
+        candidate_count=2,
+        preferences=PreferenceProfile(),
+    )
+    kroger_score = client._score_product_preference(
+        kroger,
+        make_detail(kroger, ingredients="Milk"),
+        original_rank=1,
+        candidate_count=2,
+        preferences=PreferenceProfile(),
+    )
+
+    assert simple_score.total > kroger_score.total
+    assert "Simple Truth brand" in " ".join(simple_score.reasons)
+
+
+def test_preference_scoring_penalizes_unwanted_ingredients_with_explanation():
+    client = KrogerClient.__new__(KrogerClient)
+    product = make_product("0001111040101")
+
+    score = client._score_product_preference(
+        product,
+        make_detail(product, ingredients="Water, high fructose corn syrup, red 40"),
+        original_rank=1,
+        candidate_count=1,
+        preferences=PreferenceProfile(),
+    )
+
+    reasons = " ".join(score.reasons)
+    assert score.total < 0
+    assert "high-fructose corn syrup" in reasons
+    assert "Red 40 dye" in reasons
+    assert not any("Ingredients not assessed" in warning for warning in score.warnings)
+
+
+def test_preference_scoring_warns_without_penalizing_when_ingredients_missing():
+    client = KrogerClient.__new__(KrogerClient)
+    product = make_product("0001111040101")
+
+    score = client._score_product_preference(
+        product,
+        make_detail(product, ingredients=None),
+        original_rank=1,
+        candidate_count=1,
+        preferences=PreferenceProfile(),
+    )
+
+    assert score.total == 0.25
+    assert any("Ingredients not assessed" in warning for warning in score.warnings)
+
+
+def test_ranked_search_uses_original_kroger_order_to_break_ties(tmp_path):
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                make_product("0001111040101", description="First"),
+                make_product("0001111040102", description="Second"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            return make_detail(product, ingredients="Milk")
+
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert [item.product.product_id for item in results] == ["0001111040101", "0001111040102"]
+    assert results[0].preference_score.total > results[1].preference_score.total
+
+
+def test_health_nutrition_signal_improves_rank():
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                make_product("0001111040101", description="No Nutrition"),
+                make_product("0001111040102", description="Nutrition"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            nutrition = {"score": "100"} if product_id == "0001111040102" else None
+            return make_detail(product, ingredients="Milk", nutrition=nutrition)
+
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert results[0].product.product_id == "0001111040102"
+    assert "Health/nutrition signal" in " ".join(results[0].preference_score.reasons)
+
+
+def test_ranked_search_fetches_details_for_candidates_and_survives_one_failure():
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            self.searched_limits = []
+            self.detail_calls = []
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            self.searched_limits.append(limit)
+            return [
+                make_product("0001111040101", brand="Simple Truth", description="First"),
+                make_product("0001111040102", description="Second"),
+                make_product("0001111040103", description="Third"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            self.detail_calls.append(product_id)
+            if product_id == "0001111040102":
+                raise RuntimeError("detail timeout")
+            product = make_product(product_id)
+            return make_detail(product, ingredients="Milk")
+
+    client = FakeClient()
+    results = client.ranked_search_products("milk", limit=2, candidate_limit=3)
+
+    assert client.searched_limits == [3]
+    assert client.detail_calls == ["0001111040101", "0001111040102", "0001111040103"]
+    assert len(results) == 2
+    failed = [item for item in results if item.product.product_id == "0001111040102"]
+    assert not failed or any("Product detail unavailable" in warning for warning in failed[0].preference_score.warnings)
+    assert any(item.product.brand == "Simple Truth" for item in results)

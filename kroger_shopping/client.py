@@ -1,5 +1,5 @@
 import requests
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 from urllib.parse import quote
 
 from .config import KrogerConfig
@@ -15,6 +15,9 @@ from .models import (
     Chain,
     Department,
     CartModality,
+    PreferenceProfile,
+    ProductPreferenceScore,
+    RankedProduct,
 )
 from .exceptions import (
     KrogerAuthError,
@@ -314,6 +317,152 @@ class KrogerClient:
             raw=item,
         )
 
+    def ranked_search_products(
+        self,
+        term: str,
+        location_id: Optional[str] = None,
+        limit: int = 10,
+        candidate_limit: int = 25,
+        preferences: Optional[PreferenceProfile] = None,
+    ) -> List[RankedProduct]:
+        """Search Kroger products and rank candidates against local preferences."""
+        self._validate_limit(limit)
+        self._validate_limit(candidate_limit)
+        if location_id:
+            location_id = self._validate_location_id(location_id)
+
+        profile = preferences or PreferenceProfile()
+        candidates = self.search_products(term, limit=candidate_limit, location_id=location_id)
+        ranked = []
+        for index, product in enumerate(candidates, start=1):
+            detail = None
+            detail_warning = None
+            try:
+                detail = self.get_product_detail(product.product_id, location_id=location_id)
+            except Exception as exc:
+                detail_warning = f"Product detail unavailable: {exc}"
+
+            score = self._score_product_preference(
+                product,
+                detail,
+                original_rank=index,
+                candidate_count=len(candidates),
+                preferences=profile,
+            )
+            if detail_warning:
+                score.warnings.insert(0, detail_warning)
+            ranked.append(
+                RankedProduct(
+                    product=product,
+                    detail=detail,
+                    preference_score=score,
+                    original_kroger_rank=index,
+                )
+            )
+
+        ranked.sort(key=lambda item: (-item.preference_score.total, item.original_kroger_rank))
+        return ranked[:limit]
+
+    def _score_product_preference(
+        self,
+        product: Product,
+        detail: Optional[ProductDetail],
+        original_rank: int,
+        candidate_count: int,
+        preferences: PreferenceProfile,
+    ) -> ProductPreferenceScore:
+        score = 0.0
+        reasons = []
+        warnings = []
+        inspected_fields = ["kroger_rank", "brand"]
+
+        rank_points = max(candidate_count - original_rank + 1, 0) * preferences.kroger_rank_weight
+        if rank_points:
+            score += rank_points
+            reasons.append(f"Kroger result order signal +{rank_points:.2f}")
+
+        brand = (product.brand or (detail.brand if detail else None) or "").strip()
+        if brand.lower().startswith("simple truth"):
+            score += preferences.simple_truth_bonus
+            reasons.append(f"Simple Truth brand +{preferences.simple_truth_bonus:.2f}")
+
+        ingredients, ingredient_fields = self._extract_ingredient_text(detail.raw if detail else None)
+        inspected_fields.extend(ingredient_fields)
+        if ingredients:
+            lowered = ingredients.lower()
+            matched_labels = set()
+            for rule in preferences.ingredient_rules:
+                if rule.keyword.lower() in lowered and rule.label not in matched_labels:
+                    score -= rule.penalty
+                    matched_labels.add(rule.label)
+                    reasons.append(f"Contains {rule.label} -{rule.penalty:.2f}")
+        else:
+            warnings.append("Ingredients not assessed; Kroger detail did not include ingredient data.")
+
+        nutrition = detail.nutrition if detail and detail.nutrition else None
+        if nutrition:
+            inspected_fields.append("nutrition")
+            score += preferences.nutrition_data_bonus
+            reasons.append(f"Nutrition data available +{preferences.nutrition_data_bonus:.2f}")
+            health_points = self._health_signal_points(nutrition, preferences.health_score_weight)
+            if health_points:
+                score += health_points
+                reasons.append(f"Health/nutrition signal +{health_points:.2f}")
+        else:
+            warnings.append("Nutrition signals not assessed; Kroger detail did not include nutrition data.")
+
+        return ProductPreferenceScore(
+            total=round(score, 2),
+            reasons=reasons,
+            warnings=warnings,
+            inspected_fields=sorted(set(inspected_fields)),
+        )
+
+    def _extract_ingredient_text(self, raw: Optional[dict[str, Any]]) -> tuple[str, list[str]]:
+        if not raw:
+            return "", []
+
+        values = []
+        fields = []
+
+        def visit(value: Any, path: str) -> None:
+            if isinstance(value, dict):
+                for key, nested in value.items():
+                    next_path = f"{path}.{key}" if path else str(key)
+                    if "ingredient" in str(key).lower():
+                        extracted = self._stringify_ingredient_value(nested)
+                        if extracted:
+                            values.append(extracted)
+                            fields.append(next_path)
+                    visit(nested, next_path)
+            elif isinstance(value, list):
+                for index, item in enumerate(value):
+                    visit(item, f"{path}[{index}]")
+
+        visit(raw, "raw")
+        return " ".join(values), fields
+
+    def _stringify_ingredient_value(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return " ".join(self._stringify_ingredient_value(item) for item in value)
+        if isinstance(value, dict):
+            return " ".join(self._stringify_ingredient_value(item) for item in value.values())
+        return ""
+
+    def _health_signal_points(self, nutrition: dict, weight: float) -> float:
+        for key in ("healthScore", "nutritionScore", "score", "rating", "optUP"):
+            if key not in nutrition:
+                continue
+            try:
+                value = float(nutrition[key])
+            except (TypeError, ValueError):
+                continue
+            if value > 5:
+                value = value / 20
+            return round(max(min(value, 5), 0) * weight, 2)
+        return 0.0
 
     def list_locations(
         self,
