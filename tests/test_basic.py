@@ -441,7 +441,12 @@ def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
                         "images": [{"perspective": "front"}],
                         "aisleLocations": [{"description": "Dairy"}],
                         "temperature": {"indicator": "Refrigerated"},
-                        "nutrition": {"calories": "150"},
+                        "nutritionInformation": [
+                            {
+                                "calories": "150",
+                                "ingredientStatement": "Milk, high fructose corn syrup",
+                            }
+                        ],
                     }
                 ]
             }
@@ -466,7 +471,12 @@ def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
     assert detail.images == [{"perspective": "front"}]
     assert detail.aisle_locations == [{"description": "Dairy"}]
     assert detail.temperature == {"indicator": "Refrigerated"}
-    assert detail.nutrition == {"calories": "150"}
+    assert detail.nutrition == [
+        {"calories": "150", "ingredientStatement": "Milk, high fructose corn syrup"}
+    ]
+    ingredients, fields = client._extract_ingredient_text(detail.raw)
+    assert "high fructose corn syrup" in ingredients
+    assert fields == ["raw.nutritionInformation[0].ingredientStatement"]
     assert detail.raw["upc"] == "0001111040101"
 
     method, url, headers, kwargs = calls[0]

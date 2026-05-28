@@ -327,7 +327,7 @@ class KrogerClient:
             images=item.get("images"),
             aisle_locations=item.get("aisleLocations"),
             temperature=item.get("temperature"),
-            nutrition=item.get("nutrition"),
+            nutrition=item.get("nutrition") or item.get("nutritionInformation"),
             raw=item,
         )
 
