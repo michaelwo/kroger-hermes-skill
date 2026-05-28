@@ -9,7 +9,15 @@ from kroger_shopping import KrogerAuthError, KrogerValidationError
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
-from kroger_shopping.models import CartItem, CartModality, PreferenceProfile, Product, ProductDetail, TokenSet
+from kroger_shopping.models import (
+    CartItem,
+    CartModality,
+    PreferenceProfile,
+    Product,
+    ProductDetail,
+    ProductFulfillment,
+    TokenSet,
+)
 
 
 def make_config(tmp_path):
@@ -229,6 +237,99 @@ def test_search_uses_app_token(tmp_path):
     assert calls == ["app"]
 
 
+def test_config_defaults_to_nora_csp(tmp_path):
+    config = make_config(tmp_path)
+
+    assert config.default_location_id == "02100998"
+    assert config.default_fulfillment is ProductFulfillment.CSP
+
+
+def test_config_from_env_parses_default_fulfillment(monkeypatch, tmp_path):
+    monkeypatch.setenv("KROGER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("KROGER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("KROGER_TOKEN_FILE", str(tmp_path / "tokens.json"))
+    monkeypatch.setenv("KROGER_DEFAULT_LOCATION_ID", "01400943")
+    monkeypatch.setenv("KROGER_DEFAULT_FULFILLMENT", "ais")
+
+    config = KrogerConfig.from_env()
+
+    assert config.default_location_id == "01400943"
+    assert config.default_fulfillment is ProductFulfillment.AIS
+
+
+def test_config_from_env_rejects_invalid_default_fulfillment(monkeypatch):
+    monkeypatch.setenv("KROGER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("KROGER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("KROGER_DEFAULT_FULFILLMENT", "pickup")
+
+    with pytest.raises(ValueError, match="KROGER_DEFAULT_FULFILLMENT"):
+        KrogerConfig.from_env()
+
+
+def test_search_products_defaults_to_nora_csp(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": []}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append(kwargs["params"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.search_products("milk") == []
+    assert calls == [
+        {
+            "filter.term": "milk",
+            "filter.limit": 10,
+            "filter.locationId": "02100998",
+            "filter.fulfillment": "csp",
+        }
+    ]
+
+
+def test_search_products_serializes_multiple_fulfillment_enums(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": []}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append(kwargs["params"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.search_products(
+        "milk",
+        fulfillment=[ProductFulfillment.AIS, ProductFulfillment.CSP],
+    ) == []
+    assert calls[0]["filter.fulfillment"] == "ais,csp"
+
+
 def test_search_products_validates_limit_before_request(tmp_path):
     client = KrogerClient(make_config(tmp_path))
 
@@ -258,8 +359,11 @@ def test_search_products_validates_location_id_before_request(tmp_path):
 def test_search_products_validates_fulfillment_before_request(tmp_path):
     client = KrogerClient(make_config(tmp_path))
 
-    with pytest.raises(KrogerValidationError, match="Fulfillment must be one of"):
+    with pytest.raises(KrogerValidationError, match="ProductFulfillment enum"):
         client.search_products("milk", fulfillment="pickup")
+
+    with pytest.raises(KrogerValidationError, match="ProductFulfillment enum"):
+        client.search_products("milk", fulfillment="csp")
 
 
 def test_search_products_strips_and_normalizes_filters(tmp_path):
@@ -289,7 +393,7 @@ def test_search_products_strips_and_normalizes_filters(tmp_path):
         "  milk  ",
         limit=50,
         location_id=" 01400943 ",
-        fulfillment=" CSP ",
+        fulfillment=ProductFulfillment.CSP,
         brand=" Kroger ",
     ) == []
     assert calls == [

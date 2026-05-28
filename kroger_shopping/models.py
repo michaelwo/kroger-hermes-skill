@@ -3,6 +3,14 @@ from enum import Enum
 from typing import Optional, Any
 
 
+class ProductFulfillment(str, Enum):
+    """Supported Kroger product search fulfillment filters."""
+    AIS = "ais"
+    CSP = "csp"
+    DTH = "dth"
+    STH = "sth"
+
+
 class CartModality(str, Enum):
     """Supported Kroger cart fulfillment modalities."""
     DELIVERY = "DELIVERY"

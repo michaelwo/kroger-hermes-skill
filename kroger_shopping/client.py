@@ -1,5 +1,5 @@
 import requests
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Sequence, Union
 from urllib.parse import quote
 
 from .config import KrogerConfig
@@ -15,6 +15,7 @@ from .models import (
     Chain,
     Department,
     CartModality,
+    ProductFulfillment,
     PreferenceProfile,
     ProductPreferenceScore,
     RankedProduct,
@@ -31,7 +32,6 @@ class KrogerClient:
     """High-level client for interacting with Kroger APIs."""
 
     BASE_URL = "https://api.kroger.com"
-    ALLOWED_FULFILLMENTS = {"ais", "csp", "dth", "sth"}
     MIN_PRODUCT_SEARCH_LIMIT = 1
     MAX_PRODUCT_SEARCH_LIMIT = 50
     MIN_LOCATION_LIMIT = 1
@@ -131,12 +131,25 @@ class KrogerClient:
             raise KrogerValidationError("Location ID must be exactly 8 digits")
         return location_id
 
-    def _validate_fulfillment(self, fulfillment: str) -> str:
-        fulfillment = fulfillment.strip().lower()
-        if fulfillment not in self.ALLOWED_FULFILLMENTS:
-            allowed = ", ".join(sorted(self.ALLOWED_FULFILLMENTS))
-            raise KrogerValidationError(f"Fulfillment must be one of: {allowed}")
-        return fulfillment
+    def _validate_fulfillment(
+        self,
+        fulfillment: Union[ProductFulfillment, Sequence[ProductFulfillment]],
+    ) -> str:
+        if isinstance(fulfillment, ProductFulfillment):
+            return fulfillment.value
+        if isinstance(fulfillment, str) or not isinstance(fulfillment, Sequence):
+            allowed = ", ".join(item.name for item in ProductFulfillment)
+            raise KrogerValidationError(f"Fulfillment must be ProductFulfillment enum values: {allowed}")
+
+        values = []
+        for item in fulfillment:
+            if not isinstance(item, ProductFulfillment):
+                allowed = ", ".join(value.name for value in ProductFulfillment)
+                raise KrogerValidationError(f"Fulfillment must be ProductFulfillment enum values: {allowed}")
+            values.append(item.value)
+        if not values:
+            raise KrogerValidationError("Fulfillment must include at least one ProductFulfillment value")
+        return ",".join(values)
 
     def _validate_product_id(self, product_id: str, field_name: str = "Product ID") -> str:
         if product_id is None:
@@ -238,7 +251,7 @@ class KrogerClient:
         term: str,
         limit: int = 10,
         location_id: Optional[str] = None,
-        fulfillment: Optional[str] = None,
+        fulfillment: Optional[Union[ProductFulfillment, Sequence[ProductFulfillment]]] = None,
         brand: Optional[str] = None,
     ) -> List[Product]:
         term = self._validate_search_term(term)
@@ -248,8 +261,9 @@ class KrogerClient:
         loc = location_id or self.config.default_location_id
         if loc:
             params["filter.locationId"] = self._validate_location_id(loc)
-        if fulfillment:
-            params["filter.fulfillment"] = self._validate_fulfillment(fulfillment)
+        fulfillment_filter = fulfillment if fulfillment is not None else self.config.default_fulfillment
+        if fulfillment_filter is not None:
+            params["filter.fulfillment"] = self._validate_fulfillment(fulfillment_filter)
         if brand:
             params["filter.brand"] = brand.strip()
 
@@ -324,6 +338,7 @@ class KrogerClient:
         limit: int = 10,
         candidate_limit: int = 25,
         preferences: Optional[PreferenceProfile] = None,
+        fulfillment: Optional[Union[ProductFulfillment, Sequence[ProductFulfillment]]] = None,
     ) -> List[RankedProduct]:
         """Search Kroger products and rank candidates against local preferences."""
         self._validate_limit(limit)
@@ -332,7 +347,12 @@ class KrogerClient:
             location_id = self._validate_location_id(location_id)
 
         profile = preferences or PreferenceProfile()
-        candidates = self.search_products(term, limit=candidate_limit, location_id=location_id)
+        candidates = self.search_products(
+            term,
+            limit=candidate_limit,
+            location_id=location_id,
+            fulfillment=fulfillment,
+        )
         ranked = []
         for index, product in enumerate(candidates, start=1):
             detail = None
