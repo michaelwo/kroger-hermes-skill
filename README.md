@@ -2,6 +2,10 @@
 
 API-first Kroger shopping client and Hermes slash-command skill. It supports product search, product detail parsing, local recommendation ranking, OAuth token management, and adding items to a Kroger cart.
 
+## Disclaimer
+
+This project is an independent, unofficial client and is not affiliated with, endorsed by, sponsored by, or approved by The Kroger Co., Kroger, or Simple Truth. Kroger and Simple Truth are trademarks of their respective owners.
+
 ## Features
 
 - Product search with location, brand, limit, and fulfillment filters

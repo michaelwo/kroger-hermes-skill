@@ -19,6 +19,7 @@ Guidance for coding agents working in this repository.
 - Inspect existing code and tests before editing.
 - Preserve user changes in the working tree; do not revert unrelated files.
 - Do not commit `.env`, token files, credentials, or live API output containing secrets.
+- Preserve the Kroger/Simple Truth non-affiliation disclaimer in public-facing docs.
 - Prefer focused changes that follow the existing layered architecture.
 - Keep raw Kroger payloads available on major models when adding typed fields.
 - Keep docs, tests, and command output aligned when public behavior changes.

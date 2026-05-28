@@ -9,6 +9,8 @@ category: shopping
 
 Layered Kroger Developer API implementation for product discovery and cart adds.
 
+This is an independent, unofficial integration and is not affiliated with, endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
+
 ## Capabilities
 
 - `/kroger search <term>` for compact product search
