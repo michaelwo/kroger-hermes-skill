@@ -96,6 +96,103 @@ def test_missing_required_scope_raises_auth_error(tmp_path):
         )
 
 
+def test_long_tokens_round_trip_without_truncation(tmp_path):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    access_token = "access-" + ("a" * 2048)
+    refresh_token = "refresh-" + ("r" * 2048)
+    tokens = TokenSet(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=1800,
+        expires_at=time.time() + 900,
+        scope="product.compact cart.basic:write profile.compact",
+    )
+
+    auth._save_user_tokens(tokens)
+    loaded = auth._load_user_tokens()
+
+    assert loaded.access_token == access_token
+    assert loaded.refresh_token == refresh_token
+    assert len(loaded.access_token) == len(access_token)
+    assert len(loaded.refresh_token) == len(refresh_token)
+
+
+def test_token_response_computes_expires_at_with_safety_skew(tmp_path):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    before = time.time()
+
+    tokens = auth._tokens_from_response(
+        {
+            "access_token": "access",
+            "refresh_token": "refresh",
+            "expires_in": 1800,
+            "scope": "product.compact cart.basic:write profile.compact",
+        },
+        required_scopes=("cart.basic:write",),
+        require_refresh=True,
+    )
+
+    after = time.time()
+    assert before + 1500 <= tokens.expires_at <= after + 1500
+    assert tokens.expires_in == 1800
+
+
+def test_refresh_response_preserves_existing_refresh_token_when_omitted(tmp_path):
+    auth = KrogerAuthClient(make_config(tmp_path))
+
+    tokens = auth._tokens_from_response(
+        {
+            "access_token": "new-access",
+            "expires_in": 1800,
+            "scope": "product.compact cart.basic:write profile.compact",
+        },
+        fallback_refresh_token="old-refresh",
+        required_scopes=("cart.basic:write",),
+        require_refresh=True,
+    )
+
+    assert tokens.access_token == "new-access"
+    assert tokens.refresh_token == "old-refresh"
+
+
+def test_expired_saved_user_token_refreshes_and_persists_new_access_token(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+    auth._save_user_tokens(
+        TokenSet(
+            access_token="expired-access",
+            refresh_token="saved-refresh",
+            expires_in=1800,
+            expires_at=time.time() - 1,
+            scope="product.compact cart.basic:write profile.compact",
+        )
+    )
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "access_token": "fresh-access",
+                "expires_in": 1800,
+                "scope": "product.compact cart.basic:write profile.compact",
+            }
+
+    calls = []
+
+    def fake_post(url, headers=None, data=None, timeout=None):
+        calls.append(data)
+        return Response()
+
+    monkeypatch.setattr("kroger_shopping.auth.requests.post", fake_post)
+
+    assert auth.get_user_access_token() == "fresh-access"
+    loaded = auth._load_user_tokens()
+    assert loaded.access_token == "fresh-access"
+    assert loaded.refresh_token == "saved-refresh"
+    assert calls == [{"grant_type": "refresh_token", "refresh_token": "saved-refresh"}]
+
+
 def test_search_uses_app_token(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     calls = []
