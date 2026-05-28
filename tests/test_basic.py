@@ -16,6 +16,7 @@ from kroger_shopping.models import (
     Product,
     ProductDetail,
     ProductFulfillment,
+    ProductNutritionInformation,
     TokenSet,
 )
 
@@ -421,34 +422,56 @@ def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
 
         def json(self):
             return {
-                "data": [
-                    {
-                        "upc": "0001111040101",
-                        "productId": "0001111040101",
-                        "description": "Kroger Vitamin D Whole Milk Gallon",
-                        "brand": "Kroger",
-                        "categories": ["Dairy"],
-                        "items": [
+                "data": {
+                    "upc": "0001111040101",
+                    "productId": "0001111040101",
+                    "description": "Kroger Vitamin D Whole Milk Gallon",
+                    "brand": "Kroger",
+                    "categories": ["Dairy"],
+                    "countryOrigin": "United States",
+                    "snapEligible": True,
+                    "organicClaimName": "ORGANIC CLAIM AND PRINTED ON PACKAGE",
+                    "allergensDescription": "Contains Milk.",
+                    "allergens": [
+                        {"name": "Milk and its Derivatives", "levelOfContainmentName": "Contains"}
+                    ],
+                    "warnings": "KEEP REFRIGERATED",
+                    "restrictions": {"minimumOrderQuantity": 1},
+                    "items": [
+                        {
+                            "itemId": "0001111040101",
+                            "size": "1 gal",
+                            "soldBy": "UNIT",
+                            "price": {"regular": 3.29},
+                            "nationalPrice": {"regular": 3.49},
+                            "favorite": True,
+                            "fulfillment": {
+                                "curbside": True,
+                                "delivery": False,
+                                "instore": True,
+                                "shiptohome": False,
+                            },
+                            "inventory": {"stockLevel": "HIGH"},
+                        }
+                    ],
+                    "images": [{"perspective": "front"}],
+                    "aisleLocations": [{"description": "Dairy"}],
+                    "temperature": {"indicator": "Refrigerated"},
+                    "nutritionInformation": {
+                        "ingredientStatement": "Milk, high fructose corn syrup",
+                        "servingSize": {"description": "8 fl oz"},
+                        "nutrients": [
                             {
-                                "itemId": "0001111040101",
-                                "size": "1 gal",
-                                "soldBy": "UNIT",
-                                "price": {"regular": 3.29},
-                                "fulfillment": {"csp": True},
-                                "inventory": {"stockLevel": "HIGH"},
+                                "code": "CA",
+                                "displayName": "Calcium",
+                                "quantity": 290,
+                                "unitOfMeasure": {"abbreviation": "mg"},
+                                "percentDailyIntake": 25,
                             }
                         ],
-                        "images": [{"perspective": "front"}],
-                        "aisleLocations": [{"description": "Dairy"}],
-                        "temperature": {"indicator": "Refrigerated"},
-                        "nutritionInformation": [
-                            {
-                                "calories": "150",
-                                "ingredientStatement": "Milk, high fructose corn syrup",
-                            }
-                        ],
-                    }
-                ]
+                        "nutritionalRating": "73",
+                    },
+                }
             }
 
     class Session:
@@ -467,26 +490,114 @@ def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
     assert detail.categories == ["Dairy"]
     assert detail.items[0].size == "1 gal"
     assert detail.items[0].price == {"regular": 3.29}
-    assert detail.items[0].inventory == {"stockLevel": "HIGH"}
+    assert detail.items[0].national_price == {"regular": 3.49}
+    assert detail.items[0].favorite is True
+    assert detail.items[0].fulfillment.curbside is True
+    assert detail.items[0].fulfillment.delivery is False
+    assert detail.items[0].fulfillment.instore is True
+    assert detail.items[0].fulfillment.shiptohome is False
+    assert detail.items[0].inventory.stock_level == "HIGH"
     assert detail.images == [{"perspective": "front"}]
     assert detail.aisle_locations == [{"description": "Dairy"}]
     assert detail.temperature == {"indicator": "Refrigerated"}
-    assert detail.nutrition == [
-        {"calories": "150", "ingredientStatement": "Milk, high fructose corn syrup"}
-    ]
-    ingredients, fields = client._extract_ingredient_text(detail.raw)
+    assert detail.country_origin == "United States"
+    assert detail.snap_eligible is True
+    assert detail.organic_claim_name == "ORGANIC CLAIM AND PRINTED ON PACKAGE"
+    assert detail.allergens_description == "Contains Milk."
+    assert detail.allergens[0].name == "Milk and its Derivatives"
+    assert detail.allergens[0].level_of_containment_name == "Contains"
+    assert detail.warnings == "KEEP REFRIGERATED"
+    assert detail.restrictions == {"minimumOrderQuantity": 1}
+    assert detail.nutrition_information[0].ingredient_statement == "Milk, high fructose corn syrup"
+    assert detail.nutrition_information[0].serving_size == {"description": "8 fl oz"}
+    assert detail.nutrition_information[0].nutrients[0].display_name == "Calcium"
+    assert detail.nutrition_information[0].nutrients[0].percent_daily_intake == 25
+    ingredients, fields = client._extract_ingredient_text(detail.raw, detail.nutrition_information)
     assert "high fructose corn syrup" in ingredients
-    assert fields == ["raw.nutritionInformation[0].ingredientStatement"]
+    assert fields == ["nutrition_information[0].ingredient_statement"]
     assert detail.raw["upc"] == "0001111040101"
 
     method, url, headers, kwargs = calls[0]
     assert method == "GET"
-    assert url == "https://api.kroger.com/v1/products"
+    assert url == "https://api.kroger.com/v1/products/0001111040101"
     assert headers["Authorization"] == "Bearer app-token"
-    assert kwargs["params"] == {
-        "filter.productId": "0001111040101",
-        "filter.locationId": "01400943",
+    assert kwargs["params"] == {"filter.locationId": "01400943"}
+
+
+def test_product_detail_parses_list_nutrition_and_documented_stock_levels():
+    client = KrogerClient.__new__(KrogerClient)
+
+    detail = client._product_detail_from_response(
+        {
+            "upc": "0001111040101",
+            "productId": "0001111040101",
+            "description": "Test",
+            "items": [
+                {"inventory": {"stockLevel": "LOW"}},
+                {"inventory": {"stockLevel": "TEMPORARILY_OUT_OF_STOCK"}},
+            ],
+            "nutritionInformation": [
+                {"ingredientStatement": "Water", "nutritionalRating": "40"}
+            ],
+        }
+    )
+
+    assert detail.nutrition_information[0].ingredient_statement == "Water"
+    assert detail.items[0].inventory.stock_level == "LOW"
+    assert detail.items[1].inventory.stock_level == "TEMPORARILY_OUT_OF_STOCK"
+
+
+def test_ingredient_extraction_prefers_typed_nutrition_statement_over_raw_fallback():
+    client = KrogerClient.__new__(KrogerClient)
+    typed = [ProductNutritionInformation(ingredient_statement="Milk, red 40")]
+    raw = {"food": {"ingredients": "Milk, high fructose corn syrup"}}
+
+    ingredients, fields = client._extract_ingredient_text(raw, typed)
+
+    assert ingredients == "Milk, red 40"
+    assert fields == ["nutrition_information[0].ingredient_statement"]
+
+
+def test_openapi_contract_values_match_client_validators():
+    with open("references/openapi/kroger-products.openapi.json", encoding="utf-8") as fh:
+        products = json.load(fh)
+    with open("references/openapi/kroger-cart.openapi.json", encoding="utf-8") as fh:
+        cart = json.load(fh)
+    with open("references/openapi/kroger-location.openapi.json", encoding="utf-8") as fh:
+        locations = json.load(fh)
+
+    assert "/v1/products" in products["paths"]
+    assert "/v1/products/{id}" in products["paths"]
+    assert "/v1/cart/add" in cart["paths"]
+    assert "/v1/locations" in locations["paths"]
+
+    search_params = {
+        parameter["name"]: parameter
+        for parameter in products["paths"]["/v1/products"]["get"]["parameters"]
     }
+    assert search_params["filter.fulfillment"]["schema"]["enum"] == [item.value for item in ProductFulfillment]
+    assert search_params["filter.limit"]["schema"]["minimum"] == KrogerClient.MIN_PRODUCT_SEARCH_LIMIT
+    assert search_params["filter.limit"]["schema"]["maximum"] == KrogerClient.MAX_PRODUCT_SEARCH_LIMIT
+
+    product_id_schema = products["components"]["schemas"]["productId"]
+    assert product_id_schema["minLength"] == 13
+    assert product_id_schema["maxLength"] == 13
+
+    modality = cart["components"]["schemas"]["cart.cartItemModel"]["properties"]["modality"]
+    assert modality["enum"] == [item.value for item in CartModality]
+
+
+def test_openapi_product_item_response_values_match_models():
+    with open("references/openapi/kroger-products.openapi.json", encoding="utf-8") as fh:
+        products = json.load(fh)
+
+    schemas = products["components"]["schemas"]
+    fulfillment_fields = schemas["products.productItemFulfillmentModel"]["properties"]
+    inventory_stock = schemas["products.productItemInventoryModel"]["properties"]["stockLevel"]
+
+    assert list(fulfillment_fields) == ["curbside", "delivery", "instore", "shiptohome"]
+    assert inventory_stock["enum"] == ["HIGH", "LOW", "TEMPORARILY_OUT_OF_STOCK"]
+
 
 
 def test_get_product_detail_returns_none_when_not_found(tmp_path):
@@ -941,12 +1052,22 @@ def make_detail(product, ingredients=None, nutrition=None):
     }
     if ingredients is not None:
         raw["food"] = {"ingredients": ingredients}
+    nutrition_information = None
+    if nutrition is not None:
+        raw["nutritionInformation"] = nutrition
+        nutrition_information = [
+            ProductNutritionInformation(
+                ingredient_statement=nutrition.get("ingredientStatement") if isinstance(nutrition, dict) else None,
+                nutritional_rating=str(nutrition.get("score")) if isinstance(nutrition, dict) and nutrition.get("score") is not None else None,
+                raw=nutrition if isinstance(nutrition, dict) else None,
+            )
+        ]
     return ProductDetail(
         upc=product.upc,
         product_id=product.product_id,
         description=product.description,
         brand=product.brand,
-        nutrition=nutrition,
+        nutrition_information=nutrition_information,
         raw=raw,
     )
 

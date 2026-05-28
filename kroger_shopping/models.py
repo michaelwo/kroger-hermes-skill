@@ -18,6 +18,53 @@ class CartModality(str, Enum):
 
 
 @dataclass
+class ProductItemFulfillment:
+    """Represents item fulfillment availability returned by Kroger."""
+    curbside: Optional[bool] = None
+    delivery: Optional[bool] = None
+    instore: Optional[bool] = None
+    shiptohome: Optional[bool] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class ProductItemInventory:
+    """Represents item inventory returned by Kroger."""
+    stock_level: Optional[str] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class ProductNutrient:
+    """Represents a nutrient entry from Kroger nutrition information."""
+    code: Optional[str] = None
+    description: Optional[str] = None
+    display_name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_of_measure: Optional[dict] = None
+    percent_daily_intake: Optional[float] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class ProductNutritionInformation:
+    """Represents Kroger nutrition information for a product."""
+    ingredient_statement: Optional[str] = None
+    serving_size: Optional[dict] = None
+    nutrients: Optional[list[ProductNutrient]] = None
+    nutritional_rating: Optional[str] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class ProductAllergen:
+    """Represents an allergen declaration returned by Kroger."""
+    name: Optional[str] = None
+    level_of_containment_name: Optional[str] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
 class Product:
     """Represents a product from the Kroger catalog."""
     upc: str
@@ -36,8 +83,11 @@ class ProductItemDetail:
     size: Optional[str] = None
     sold_by: Optional[str] = None
     price: Optional[dict] = None
-    fulfillment: Optional[dict] = None
-    inventory: Optional[dict] = None
+    national_price: Optional[dict] = None
+    favorite: Optional[bool] = None
+    fulfillment: Optional[ProductItemFulfillment] = None
+    inventory: Optional[ProductItemInventory] = None
+    raw: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -52,7 +102,14 @@ class ProductDetail:
     images: Optional[list] = None
     aisle_locations: Optional[list] = None
     temperature: Optional[dict] = None
-    nutrition: Optional[dict] = None
+    nutrition_information: Optional[list[ProductNutritionInformation]] = None
+    allergens: Optional[list[ProductAllergen]] = None
+    allergens_description: Optional[str] = None
+    snap_eligible: Optional[bool] = None
+    organic_claim_name: Optional[str] = None
+    country_origin: Optional[str] = None
+    warnings: Optional[str] = None
+    restrictions: Optional[dict] = None
     raw: Optional[dict[str, Any]] = None
 
 

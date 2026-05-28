@@ -8,6 +8,11 @@ from .models import (
     Product,
     ProductDetail,
     ProductItemDetail,
+    ProductItemFulfillment,
+    ProductItemInventory,
+    ProductNutritionInformation,
+    ProductNutrient,
+    ProductAllergen,
     Location,
     LocationAddress,
     GeoLocation,
@@ -294,16 +299,21 @@ class KrogerClient:
         product_id: str,
         location_id: Optional[str] = None,
     ) -> Optional[ProductDetail]:
-        params = {"filter.productId": self._validate_product_id(product_id)}
+        product_id = self._validate_product_id(product_id)
+        params = {}
         loc = location_id or self.config.default_location_id
         if loc:
             params["filter.locationId"] = self._validate_location_id(loc)
 
-        resp = self._request("GET", "/v1/products", auth_mode="app", params=params)
-        products = resp.json().get("data", [])
-        if not products:
+        resp = self._request("GET", f"/v1/products/{product_id}", auth_mode="app", params=params)
+        data = resp.json().get("data")
+        if not data:
             return None
-        return self._product_detail_from_response(products[0])
+        if isinstance(data, list):
+            if not data:
+                return None
+            data = data[0]
+        return self._product_detail_from_response(data)
 
     def _product_detail_from_response(self, item: dict) -> ProductDetail:
         product_items = item.get("items") or []
@@ -313,23 +323,99 @@ class KrogerClient:
             description=item.get("description", ""),
             brand=item.get("brand"),
             categories=item.get("categories"),
-            items=[
-                ProductItemDetail(
-                    item_id=product_item.get("itemId"),
-                    size=product_item.get("size"),
-                    sold_by=product_item.get("soldBy"),
-                    price=product_item.get("price"),
-                    fulfillment=product_item.get("fulfillment"),
-                    inventory=product_item.get("inventory"),
-                )
-                for product_item in product_items
-            ],
+            items=[self._product_item_detail_from_response(product_item) for product_item in product_items],
             images=item.get("images"),
             aisle_locations=item.get("aisleLocations"),
             temperature=item.get("temperature"),
-            nutrition=item.get("nutrition") or item.get("nutritionInformation"),
+            nutrition_information=self._nutrition_information_from_response(
+                item.get("nutritionInformation") or item.get("nutrition")
+            ),
+            allergens=self._allergens_from_response(item.get("allergens")),
+            allergens_description=item.get("allergensDescription"),
+            snap_eligible=item.get("snapEligible"),
+            organic_claim_name=item.get("organicClaimName"),
+            country_origin=item.get("countryOrigin"),
+            warnings=item.get("warnings"),
+            restrictions=item.get("restrictions") or item.get("retstrictions"),
             raw=item,
         )
+
+    def _product_item_detail_from_response(self, item: dict) -> ProductItemDetail:
+        return ProductItemDetail(
+            item_id=item.get("itemId"),
+            size=item.get("size"),
+            sold_by=item.get("soldBy"),
+            price=item.get("price"),
+            national_price=item.get("nationalPrice"),
+            favorite=item.get("favorite"),
+            fulfillment=self._item_fulfillment_from_response(item.get("fulfillment")),
+            inventory=self._item_inventory_from_response(item.get("inventory")),
+            raw=item,
+        )
+
+    def _item_fulfillment_from_response(self, fulfillment: Optional[dict]) -> Optional[ProductItemFulfillment]:
+        if not isinstance(fulfillment, dict):
+            return None
+        return ProductItemFulfillment(
+            curbside=fulfillment.get("curbside"),
+            delivery=fulfillment.get("delivery"),
+            instore=fulfillment.get("instore"),
+            shiptohome=fulfillment.get("shiptohome"),
+            raw=fulfillment,
+        )
+
+    def _item_inventory_from_response(self, inventory: Optional[dict]) -> Optional[ProductItemInventory]:
+        if not isinstance(inventory, dict):
+            return None
+        return ProductItemInventory(stock_level=inventory.get("stockLevel"), raw=inventory)
+
+    def _nutrition_information_from_response(self, nutrition: Any) -> Optional[list[ProductNutritionInformation]]:
+        if not nutrition:
+            return None
+        values = nutrition if isinstance(nutrition, list) else [nutrition]
+        parsed = []
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            nutrients = []
+            for nutrient in item.get("nutrients") or []:
+                if isinstance(nutrient, dict):
+                    nutrients.append(
+                        ProductNutrient(
+                            code=nutrient.get("code"),
+                            description=nutrient.get("description"),
+                            display_name=nutrient.get("displayName"),
+                            quantity=nutrient.get("quantity"),
+                            unit_of_measure=nutrient.get("unitOfMeasure"),
+                            percent_daily_intake=nutrient.get("percentDailyIntake"),
+                            raw=nutrient,
+                        )
+                    )
+            parsed.append(
+                ProductNutritionInformation(
+                    ingredient_statement=item.get("ingredientStatement"),
+                    serving_size=item.get("servingSize"),
+                    nutrients=nutrients or None,
+                    nutritional_rating=item.get("nutritionalRating"),
+                    raw=item,
+                )
+            )
+        return parsed or None
+
+    def _allergens_from_response(self, allergens: Any) -> Optional[list[ProductAllergen]]:
+        if not allergens:
+            return None
+        parsed = []
+        for item in allergens if isinstance(allergens, list) else [allergens]:
+            if isinstance(item, dict):
+                parsed.append(
+                    ProductAllergen(
+                        name=item.get("name"),
+                        level_of_containment_name=item.get("levelOfContainmentName"),
+                        raw=item,
+                    )
+                )
+        return parsed or None
 
     def ranked_search_products(
         self,
@@ -406,7 +492,10 @@ class KrogerClient:
             score += preferences.simple_truth_bonus
             reasons.append(f"Simple Truth brand +{preferences.simple_truth_bonus:.2f}")
 
-        ingredients, ingredient_fields = self._extract_ingredient_text(detail.raw if detail else None)
+        ingredients, ingredient_fields = self._extract_ingredient_text(
+            detail.raw if detail else None,
+            detail.nutrition_information if detail else None,
+        )
         inspected_fields.extend(ingredient_fields)
         if ingredients:
             lowered = ingredients.lower()
@@ -419,9 +508,9 @@ class KrogerClient:
         else:
             warnings.append("Ingredients not assessed; Kroger detail did not include ingredient data.")
 
-        nutrition = detail.nutrition if detail and detail.nutrition else None
+        nutrition = detail.nutrition_information if detail and detail.nutrition_information else None
         if nutrition:
-            inspected_fields.append("nutrition")
+            inspected_fields.append("nutrition_information")
             score += preferences.nutrition_data_bonus
             reasons.append(f"Nutrition data available +{preferences.nutrition_data_bonus:.2f}")
             health_points = self._health_signal_points(nutrition, preferences.health_score_weight)
@@ -438,12 +527,21 @@ class KrogerClient:
             inspected_fields=sorted(set(inspected_fields)),
         )
 
-    def _extract_ingredient_text(self, raw: Optional[dict[str, Any]]) -> tuple[str, list[str]]:
-        if not raw:
-            return "", []
-
+    def _extract_ingredient_text(
+        self,
+        raw: Optional[dict[str, Any]],
+        nutrition_information: Optional[list[ProductNutritionInformation]] = None,
+    ) -> tuple[str, list[str]]:
         values = []
         fields = []
+
+        for index, nutrition in enumerate(nutrition_information or []):
+            if nutrition.ingredient_statement:
+                values.append(nutrition.ingredient_statement)
+                fields.append(f"nutrition_information[{index}].ingredient_statement")
+
+        if values or not raw:
+            return " ".join(values), fields
 
         def visit(value: Any, path: str) -> None:
             if isinstance(value, dict):
@@ -471,17 +569,28 @@ class KrogerClient:
             return " ".join(self._stringify_ingredient_value(item) for item in value.values())
         return ""
 
-    def _health_signal_points(self, nutrition: dict, weight: float) -> float:
-        for key in ("healthScore", "nutritionScore", "score", "rating", "optUP"):
-            if key not in nutrition:
+    def _health_signal_points(self, nutrition: Any, weight: float) -> float:
+        nutrition_values = nutrition if isinstance(nutrition, list) else [nutrition]
+        for nutrition_item in nutrition_values:
+            if isinstance(nutrition_item, ProductNutritionInformation):
+                candidates = {"nutritionalRating": nutrition_item.nutritional_rating}
+                if nutrition_item.raw:
+                    candidates.update(nutrition_item.raw)
+            elif isinstance(nutrition_item, dict):
+                candidates = nutrition_item
+            else:
                 continue
-            try:
-                value = float(nutrition[key])
-            except (TypeError, ValueError):
-                continue
-            if value > 5:
-                value = value / 20
-            return round(max(min(value, 5), 0) * weight, 2)
+
+            for key in ("healthScore", "nutritionScore", "score", "rating", "optUP", "nutritionalRating"):
+                if key not in candidates:
+                    continue
+                try:
+                    value = float(candidates[key])
+                except (TypeError, ValueError):
+                    continue
+                if value > 5:
+                    value = value / 20
+                return round(max(min(value, 5), 0) * weight, 2)
         return 0.0
 
     def list_locations(
