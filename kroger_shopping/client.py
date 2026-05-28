@@ -1,3 +1,5 @@
+import re
+
 import requests
 from typing import Any, List, Optional, Sequence, Union
 from urllib.parse import quote
@@ -466,8 +468,18 @@ class KrogerClient:
                 )
             )
 
-        ranked.sort(key=lambda item: (-item.preference_score.total, item.original_kroger_rank))
+        ranked.sort(key=self._ranked_product_sort_key)
         return ranked[:limit]
+
+
+    def _ranked_product_sort_key(self, item: RankedProduct) -> tuple:
+        unwanted_count = item.preference_score.unwanted_ingredient_count
+        return (
+            unwanted_count is None,
+            unwanted_count if unwanted_count is not None else 10**9,
+            -item.preference_score.total,
+            item.original_kroger_rank,
+        )
 
     def _score_product_preference(
         self,
@@ -497,14 +509,21 @@ class KrogerClient:
             detail.nutrition_information if detail else None,
         )
         inspected_fields.extend(ingredient_fields)
+        unwanted_ingredients = []
+        ingredient_match_details = []
+        unwanted_ingredient_count = None
         if ingredients:
-            lowered = ingredients.lower()
-            matched_labels = set()
-            for rule in preferences.ingredient_rules:
-                if rule.keyword.lower() in lowered and rule.label not in matched_labels:
-                    score -= rule.penalty
-                    matched_labels.add(rule.label)
-                    reasons.append(f"Contains {rule.label} -{rule.penalty:.2f}")
+            matches = self._match_unwanted_ingredients(ingredients, preferences.ingredient_rules)
+            unwanted_ingredients = [match["label"] for match in matches]
+            ingredient_match_details = matches
+            unwanted_ingredient_count = len(matches)
+            if matches:
+                reasons.append(f"Simple Truth unwanted ingredients: {unwanted_ingredient_count}")
+            else:
+                reasons.append("Simple Truth unwanted ingredients: 0")
+            for match in matches:
+                score -= match["penalty"]
+                reasons.append(f"Contains {match['label']} -{match['penalty']:.2f}")
         else:
             warnings.append("Ingredients not assessed; Kroger detail did not include ingredient data.")
 
@@ -525,7 +544,56 @@ class KrogerClient:
             reasons=reasons,
             warnings=warnings,
             inspected_fields=sorted(set(inspected_fields)),
+            unwanted_ingredient_count=unwanted_ingredient_count,
+            unwanted_ingredients=unwanted_ingredients,
+            ingredient_match_details=ingredient_match_details,
         )
+
+
+    def _match_unwanted_ingredients(
+        self,
+        ingredient_text: str,
+        rules: Sequence,
+    ) -> list[dict[str, Any]]:
+        normalized_ingredients = self._normalize_ingredient_text(ingredient_text)
+        matches_by_label = {}
+        for rule in rules:
+            normalized_keyword = self._normalize_ingredient_text(rule.keyword)
+            if not normalized_keyword:
+                continue
+            if re.search(rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])", normalized_ingredients):
+                matches_by_label.setdefault(
+                    rule.label,
+                    {
+                        "label": rule.label,
+                        "keyword": rule.keyword,
+                        "penalty": rule.penalty,
+                    },
+                )
+        matches = list(matches_by_label.values())
+        self._suppress_broad_unwanted_matches(matches)
+        return sorted(matches, key=lambda match: match["label"].lower())
+
+    def _suppress_broad_unwanted_matches(self, matches: list[dict[str, Any]]) -> None:
+        labels = {match["label"] for match in matches}
+        suppressions = {
+            "EDTA": ("Calcium disodium EDTA", "Disodium calcium EDTA", "Disodium dihydrogen EDTA", "Tetrasodium EDTA"),
+            "Nitrates/nitrites": ("Potassium nitrate or nitrite", "Sodium nitrate/nitrite"),
+            "Propionates": ("Calcium propionate", "Sodium propionate"),
+            "Benzoates in food": ("Potassium benzoate", "Sodium benzoate"),
+        }
+        broad_labels = {
+            broad_label
+            for broad_label, specific_labels in suppressions.items()
+            if broad_label in labels and any(label in labels for label in specific_labels)
+        }
+        if broad_labels:
+            matches[:] = [match for match in matches if match["label"] not in broad_labels]
+
+    def _normalize_ingredient_text(self, value: str) -> str:
+        value = value.lower().replace("&", " ")
+        value = re.sub(r"[^a-z0-9]+", " ", value)
+        return re.sub(r"\s+", " ", value).strip()
 
     def _extract_ingredient_text(
         self,

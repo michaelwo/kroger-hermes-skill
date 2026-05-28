@@ -1110,8 +1110,10 @@ def test_preference_scoring_penalizes_unwanted_ingredients_with_explanation():
 
     reasons = " ".join(score.reasons)
     assert score.total < 0
-    assert "high-fructose corn syrup" in reasons
-    assert "Red 40 dye" in reasons
+    assert "High-fructose corn syrup" in reasons
+    assert "Artificial colors" in reasons
+    assert score.unwanted_ingredient_count == 2
+    assert score.unwanted_ingredients == ["Artificial colors", "High-fructose corn syrup"]
     assert not any("Ingredients not assessed" in warning for warning in score.warnings)
 
 
@@ -1128,7 +1130,84 @@ def test_preference_scoring_warns_without_penalizing_when_ingredients_missing():
     )
 
     assert score.total == 0.25
+    assert score.unwanted_ingredient_count is None
+    assert score.unwanted_ingredients == []
     assert any("Ingredients not assessed" in warning for warning in score.warnings)
+
+
+
+def test_simple_truth_unwanted_matching_counts_unique_aliases():
+    client = KrogerClient.__new__(KrogerClient)
+
+    matches = client._match_unwanted_ingredients(
+        "Water, FD&C Red 40, red 40, BHA, butylated hydroxyanisole, potassium sorbate",
+        PreferenceProfile().ingredient_rules,
+    )
+
+    assert [match["label"] for match in matches] == [
+        "Artificial colors",
+        "BHA (butylated hydroxyanisole)",
+        "Potassium sorbate",
+    ]
+
+
+
+def test_simple_truth_unwanted_matching_suppresses_broad_family_duplicates():
+    client = KrogerClient.__new__(KrogerClient)
+
+    matches = client._match_unwanted_ingredients(
+        "Water, calcium disodium EDTA, sodium nitrate, sodium propionate",
+        PreferenceProfile().ingredient_rules,
+    )
+
+    assert [match["label"] for match in matches] == [
+        "Calcium disodium EDTA",
+        "Sodium nitrate/nitrite",
+        "Sodium propionate",
+    ]
+
+
+def test_preference_scoring_reports_zero_unwanted_ingredients_when_known_clean():
+    client = KrogerClient.__new__(KrogerClient)
+    product = make_product("0001111040101")
+
+    score = client._score_product_preference(
+        product,
+        make_detail(product, ingredients="Cultured buttermilk, garlic, onion, sea salt"),
+        original_rank=1,
+        candidate_count=1,
+        preferences=PreferenceProfile(),
+    )
+
+    assert score.unwanted_ingredient_count == 0
+    assert score.unwanted_ingredients == []
+    assert "Simple Truth unwanted ingredients: 0" in score.reasons
+
+
+def test_ranked_search_sorts_by_unwanted_ingredient_count_before_score():
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                make_product("0001111040101", brand="Simple Truth", description="Penalty"),
+                make_product("0001111040102", brand="Kroger", description="Clean"),
+                make_product("0001111040103", brand="Kroger", description="Unknown"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            if product_id == "0001111040101":
+                return make_detail(product, ingredients="Water, sodium benzoate, potassium sorbate")
+            if product_id == "0001111040102":
+                return make_detail(product, ingredients="Cultured buttermilk, garlic, onion")
+            return make_detail(product, ingredients=None)
+
+    results = FakeClient().ranked_search_products("ranch", limit=3, candidate_limit=3)
+
+    assert [item.product.description for item in results] == ["Clean", "Penalty", "Unknown"]
+    assert [item.preference_score.unwanted_ingredient_count for item in results] == [0, 2, None]
 
 
 def test_ranked_search_uses_original_kroger_order_to_break_ties(tmp_path):
