@@ -31,6 +31,10 @@ def test_quantity_validation():
     client = KrogerClient.__new__(KrogerClient)
     with pytest.raises(KrogerValidationError):
         client.add_to_cart("0001111050434", 0)
+    with pytest.raises(KrogerValidationError, match="whole number"):
+        client.add_to_cart("0001111050434", 1.5)
+    with pytest.raises(KrogerValidationError, match="whole number"):
+        client.add_to_cart("0001111050434", True)
 
 
 def test_authorization_url_contains_required_oauth_params(tmp_path):
@@ -225,6 +229,80 @@ def test_search_uses_app_token(tmp_path):
     assert calls == ["app"]
 
 
+def test_search_products_validates_limit_before_request(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="between 1 and 50"):
+        client.search_products("milk", limit=0)
+
+    with pytest.raises(KrogerValidationError, match="between 1 and 50"):
+        client.search_products("milk", limit=51)
+
+    with pytest.raises(KrogerValidationError, match="whole number"):
+        client.search_products("milk", limit=1.5)
+
+    with pytest.raises(KrogerValidationError, match="whole number"):
+        client.search_products("milk", limit=True)
+
+
+def test_search_products_validates_location_id_before_request(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Location ID"):
+        client.search_products("milk", location_id="1400943")
+
+    with pytest.raises(KrogerValidationError, match="Location ID"):
+        client.search_products("milk", location_id="abcdefgh")
+
+
+def test_search_products_validates_fulfillment_before_request(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Fulfillment must be one of"):
+        client.search_products("milk", fulfillment="pickup")
+
+
+def test_search_products_strips_and_normalizes_filters(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": []}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append(kwargs["params"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.search_products(
+        "  milk  ",
+        limit=50,
+        location_id=" 01400943 ",
+        fulfillment=" CSP ",
+        brand=" Kroger ",
+    ) == []
+    assert calls == [
+        {
+            "filter.term": "milk",
+            "filter.limit": 50,
+            "filter.locationId": "01400943",
+            "filter.fulfillment": "csp",
+            "filter.brand": "Kroger",
+        }
+    ]
+
+
 def test_get_product_detail_uses_product_id_and_maps_rich_fields(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     calls = []
@@ -324,8 +402,306 @@ def test_get_product_detail_returns_none_when_not_found(tmp_path):
 def test_get_product_detail_validates_product_id(tmp_path):
     client = KrogerClient(make_config(tmp_path))
 
-    with pytest.raises(KrogerValidationError, match="Product ID is required"):
+    with pytest.raises(KrogerValidationError, match="Product ID must be exactly 13 digits"):
         client.get_product_detail("   ")
+
+
+def test_get_product_detail_validates_product_id_format(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Product ID must be exactly 13 digits"):
+        client.get_product_detail("12345")
+
+    with pytest.raises(KrogerValidationError, match="Product ID must be exactly 13 digits"):
+        client.get_product_detail("000111104010X")
+
+
+def test_get_product_detail_validates_location_id(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Location ID"):
+        client.get_product_detail("0001111040101", location_id="bad")
+
+
+def test_list_locations_maps_params_and_response(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "locationId": "01400943",
+                        "name": "Kroger Landen",
+                        "chain": "KROGER",
+                        "phone": "5551234567",
+                        "storeNumber": "00943",
+                        "divisionNumber": "014",
+                        "address": {
+                            "addressLine1": "2900 W State Route 22",
+                            "city": "Maineville",
+                            "state": "OH",
+                            "zipCode": "45039",
+                        },
+                        "geolocation": {
+                            "latLng": "39.3110881,-84.2751167",
+                            "latitude": 39.3110881,
+                            "longitude": -84.2751167,
+                        },
+                        "departments": [
+                            {
+                                "departmentId": "01",
+                                "name": "Drug & General Merchandise",
+                                "phone": "5551112222",
+                                "hours": {"Open24": False},
+                            }
+                        ],
+                        "hours": {"timezone": "America/New_York"},
+                    }
+                ]
+            }
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append((method, url, headers, kwargs))
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    locations = client.list_locations(
+        zip_code_near=" 45044 ",
+        radius_in_miles=25,
+        limit=25,
+        chain=" Kroger ",
+        department_ids=["01", "13"],
+        location_ids="01400943,01400390",
+    )
+
+    assert len(locations) == 1
+    location = locations[0]
+    assert location.location_id == "01400943"
+    assert location.name == "Kroger Landen"
+    assert location.address.city == "Maineville"
+    assert location.geolocation.latitude == 39.3110881
+    assert location.departments[0].department_id == "01"
+    assert location.hours == {"timezone": "America/New_York"}
+    assert location.raw["storeNumber"] == "00943"
+
+    method, url, headers, kwargs = calls[0]
+    assert method == "GET"
+    assert url == "https://api.kroger.com/v1/locations"
+    assert headers["Authorization"] == "Bearer app-token"
+    assert kwargs["params"] == {
+        "filter.limit": 25,
+        "filter.zipCode.near": "45044",
+        "filter.radiusInMiles": 25,
+        "filter.chain": "Kroger",
+        "filter.department": "01,13",
+        "filter.locationId": "01400943,01400390",
+    }
+
+
+def test_list_locations_validates_filters(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Location limit must be between 1 and 200"):
+        client.list_locations(limit=201)
+    with pytest.raises(KrogerValidationError, match="Location radius must be between 1 and 100"):
+        client.list_locations(radius_in_miles=0)
+    with pytest.raises(KrogerValidationError, match="ZIP code"):
+        client.list_locations(zip_code_near="1234")
+    with pytest.raises(KrogerValidationError, match="Latitude/longitude"):
+        client.list_locations(lat_long_near="39.1")
+    with pytest.raises(KrogerValidationError, match="Latitude must be between"):
+        client.list_locations(lat_near=91, lon_near=-84)
+    with pytest.raises(KrogerValidationError, match="Longitude must be between"):
+        client.list_locations(lat_near=39, lon_near=-181)
+    with pytest.raises(KrogerValidationError, match="provided together"):
+        client.list_locations(lat_near=39)
+    with pytest.raises(KrogerValidationError, match="Use only one location starting filter"):
+        client.list_locations(zip_code_near="45044", lat_long_near="39,-84")
+    with pytest.raises(KrogerValidationError, match="Department ID"):
+        client.list_locations(department_ids="1")
+    with pytest.raises(KrogerValidationError, match="Location ID"):
+        client.list_locations(location_ids=["0140094"])
+
+
+def test_list_locations_maps_lat_lon_filters(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": []}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append(kwargs["params"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.list_locations(lat_near=39.306346, lon_near=-84.278902) == []
+    assert calls == [
+        {
+            "filter.limit": 10,
+            "filter.lat.near": "39.306346",
+            "filter.lon.near": "-84.278902",
+        }
+    ]
+
+
+def test_get_location_and_location_exists(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        text = ""
+
+        def __init__(self, status_code=200):
+            self.status_code = status_code
+
+        def json(self):
+            return {"data": {"locationId": "01400943", "name": "Kroger Landen"}}
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append((method, url))
+            return Response(204 if method == "HEAD" else 200)
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.get_location("01400943").name == "Kroger Landen"
+    assert client.location_exists("01400943") is True
+    assert calls == [
+        ("GET", "https://api.kroger.com/v1/locations/01400943"),
+        ("HEAD", "https://api.kroger.com/v1/locations/01400943"),
+    ]
+
+
+def test_resource_exists_returns_false_on_404(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        status_code = 404
+        text = "not found"
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.location_exists("01400943") is False
+
+
+def test_chain_methods_map_responses_and_paths(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        text = ""
+
+        def __init__(self, data, status_code=200):
+            self._data = data
+            self.status_code = status_code
+
+        def json(self):
+            return self._data
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append((method, url))
+            if method == "HEAD":
+                return Response({}, 204)
+            if url.endswith("/v1/chains"):
+                return Response({"data": [{"name": "KROGER", "domain": "kroger.com"}]})
+            return Response({"data": {"name": "Baker's", "friendlyBannerName": "Baker's"}})
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.list_chains()[0].domain == "kroger.com"
+    assert client.get_chain("Baker's").friendly_banner_name == "Baker's"
+    assert client.chain_exists("Baker's") is True
+    assert calls == [
+        ("GET", "https://api.kroger.com/v1/chains"),
+        ("GET", "https://api.kroger.com/v1/chains/Baker%27s"),
+        ("HEAD", "https://api.kroger.com/v1/chains/Baker%27s"),
+    ]
+
+
+def test_department_methods_map_responses_and_validate_ids(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    calls = []
+
+    class Auth:
+        def get_app_access_token(self):
+            return "app-token"
+
+    class Response:
+        text = ""
+
+        def __init__(self, data, status_code=200):
+            self._data = data
+            self.status_code = status_code
+
+        def json(self):
+            return self._data
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            calls.append((method, url))
+            if method == "HEAD":
+                return Response({}, 204)
+            if url.endswith("/v1/departments"):
+                return Response({"data": [{"departmentId": "13", "name": "Pharmacy"}]})
+            return Response({"data": {"departmentId": "01", "name": "Grocery"}})
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.list_departments()[0].department_id == "13"
+    assert client.get_department("01").name == "Grocery"
+    assert client.department_exists("01") is True
+    with pytest.raises(KrogerValidationError, match="Department ID"):
+        client.get_department("1")
+    assert calls == [
+        ("GET", "https://api.kroger.com/v1/departments"),
+        ("GET", "https://api.kroger.com/v1/departments/01"),
+        ("HEAD", "https://api.kroger.com/v1/departments/01"),
+    ]
 
 
 def test_cart_401_refreshes_user_token_once(tmp_path):

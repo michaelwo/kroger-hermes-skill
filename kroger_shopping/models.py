@@ -42,6 +42,78 @@ class ProductDetail:
 
 
 @dataclass
+class LocationAddress:
+    """Represents a Kroger location address."""
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    county: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class GeoLocation:
+    """Represents a Kroger location geolocation."""
+    lat_lng: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class LocationDepartment:
+    """Represents a department available at a specific location."""
+    department_id: str
+    name: str
+    phone: Optional[str] = None
+    hours: Optional[dict] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class Location:
+    """Represents a Kroger store location."""
+    location_id: str
+    name: Optional[str] = None
+    chain: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[LocationAddress] = None
+    geolocation: Optional[GeoLocation] = None
+    departments: Optional[list[LocationDepartment]] = None
+    hours: Optional[dict] = None
+    store_number: Optional[str] = None
+    division_number: Optional[str] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class Chain:
+    """Represents a Kroger-owned chain."""
+    name: str
+    division_numbers: Optional[list[str]] = None
+    domain: Optional[str] = None
+    friendly_banner_name: Optional[str] = None
+    default_title: Optional[str] = None
+    title_extension: Optional[str] = None
+    apple_app_id: Optional[str] = None
+    google_app_id: Optional[str] = None
+    theme_color: Optional[str] = None
+    description: Optional[str] = None
+    modality_capabilities: Optional[dict] = None
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class Department:
+    """Represents a Kroger department."""
+    department_id: str
+    name: str
+    raw: Optional[dict[str, Any]] = None
+
+
+@dataclass
 class CartItem:
     """Represents an item in the user's cart."""
     upc: str
