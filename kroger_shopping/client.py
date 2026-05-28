@@ -14,6 +14,7 @@ from .models import (
     LocationDepartment,
     Chain,
     Department,
+    CartModality,
 )
 from .exceptions import (
     KrogerAuthError,
@@ -149,6 +150,18 @@ class KrogerClient:
             raise KrogerValidationError("Quantity must be at least 1")
         return quantity
 
+    def _validate_cart_modality(self, modality: Union[CartModality, str]) -> CartModality:
+        if isinstance(modality, CartModality):
+            return modality
+        if modality is None or not str(modality).strip():
+            raise KrogerValidationError("Cart modality is required")
+
+        value = str(modality).strip().upper()
+        try:
+            return CartModality(value)
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in CartModality)
+            raise KrogerValidationError(f"Cart modality must be one of: {allowed}") from exc
 
     def _validate_int_range(
         self,
@@ -472,13 +485,17 @@ class KrogerClient:
             raw=item,
         )
 
-    def add_to_cart(self, upc: str, quantity: int = 1, modality: str = "PICKUP") -> bool:
+    def add_to_cart(
+        self,
+        upc: str,
+        quantity: int = 1,
+        modality: Union[CartModality, str] = CartModality.PICKUP,
+    ) -> bool:
         upc = self._validate_product_id(upc, field_name="UPC")
         quantity = self._validate_quantity(quantity)
-        if not modality or not modality.strip():
-            raise KrogerValidationError("Modality is required")
+        modality = self._validate_cart_modality(modality)
 
-        payload = {"items": [{"upc": upc, "quantity": quantity, "modality": modality.strip()}]}
+        payload = {"items": [{"upc": upc, "quantity": quantity, "modality": modality.value}]}
         resp = self._request(
             "PUT",
             "/v1/cart/add",

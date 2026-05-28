@@ -9,7 +9,7 @@ from kroger_shopping import KrogerAuthError, KrogerValidationError
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
-from kroger_shopping.models import TokenSet
+from kroger_shopping.models import CartItem, CartModality, TokenSet
 
 
 def make_config(tmp_path):
@@ -702,6 +702,74 @@ def test_department_methods_map_responses_and_validate_ids(tmp_path):
         ("GET", "https://api.kroger.com/v1/departments/01"),
         ("HEAD", "https://api.kroger.com/v1/departments/01"),
     ]
+
+
+def test_cart_item_defaults_to_pickup_modality():
+    item = CartItem(upc="0001111050434", quantity=1)
+
+    assert item.modality is CartModality.PICKUP
+
+
+def test_add_to_cart_accepts_cart_modality_enum(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    payloads = []
+
+    class Auth:
+        def get_user_access_token(self):
+            return "user-token"
+
+    class Response:
+        status_code = 204
+        text = ""
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            payloads.append(kwargs["json"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.add_to_cart("0001111050434", 1, CartModality.DELIVERY) is True
+    assert payloads == [
+        {"items": [{"upc": "0001111050434", "quantity": 1, "modality": "DELIVERY"}]}
+    ]
+
+
+def test_add_to_cart_normalizes_cart_modality_string(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+    payloads = []
+
+    class Auth:
+        def get_user_access_token(self):
+            return "user-token"
+
+    class Response:
+        status_code = 204
+        text = ""
+
+    class Session:
+        def request(self, method, url, headers=None, **kwargs):
+            payloads.append(kwargs["json"])
+            return Response()
+
+    client.auth = Auth()
+    client.session = Session()
+
+    assert client.add_to_cart("0001111050434", 1, " pickup ") is True
+    assert payloads == [
+        {"items": [{"upc": "0001111050434", "quantity": 1, "modality": "PICKUP"}]}
+    ]
+
+
+def test_add_to_cart_rejects_unknown_modality_before_request(tmp_path):
+    client = KrogerClient(make_config(tmp_path))
+
+    with pytest.raises(KrogerValidationError, match="Cart modality must be one of"):
+        client.add_to_cart("0001111050434", 1, "SHIP")
+
+    with pytest.raises(KrogerValidationError, match="Cart modality is required"):
+        client.add_to_cart("0001111050434", 1, "   ")
 
 
 def test_cart_401_refreshes_user_token_once(tmp_path):

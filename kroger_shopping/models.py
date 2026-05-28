@@ -1,5 +1,12 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional, Any
+
+
+class CartModality(str, Enum):
+    """Supported Kroger cart fulfillment modalities."""
+    DELIVERY = "DELIVERY"
+    PICKUP = "PICKUP"
 
 
 @dataclass
@@ -118,7 +125,7 @@ class CartItem:
     """Represents an item in the user's cart."""
     upc: str
     quantity: int
-    modality: str = "PICKUP"
+    modality: CartModality = CartModality.PICKUP
 
 
 @dataclass

@@ -10,7 +10,9 @@
 ## Cart API (`PUT /v1/cart/add`)
 - **Only supported operation**: Add/increase quantity.
 - Payload must be `{"items": [{"upc": "...", "quantity": N, "modality": "PICKUP"}]}`.
-- `quantity` must be ≥ 1 (negative values and 0 are rejected with `CART-2012`).
+- `quantity` is required and must be an integer.
+- `upc` is required and must be a 13-character string.
+- `modality` is optional and defaults to `PICKUP`. Allowed values are `DELIVERY` and `PICKUP`.
 - No documented remove or decrement operation in v1.2.3.
 - Requires Authorization Code grant + `cart.basic:write` scope.
 - Rate limit: 5,000 calls/day.

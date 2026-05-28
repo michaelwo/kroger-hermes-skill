@@ -17,6 +17,7 @@ from .models import (
     Location,
     Chain,
     Department,
+    CartModality,
     CartItem,
     TokenSet,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "Location",
     "Chain",
     "Department",
+    "CartModality",
     "CartItem",
     "TokenSet",
     "KrogerError",
