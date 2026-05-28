@@ -1,0 +1,15 @@
+version: '3.9'
+
+services:
+  dev:
+    build: .
+    image: codex-dev:3.12
+    container_name: codex-dev
+    environment:
+      - KROGER_CLIENT_ID=${KROGER_CLIENT_ID}
+      - KROGER_CLIENT_SECRET=${KROGER_CLIENT_SECRET}
+    volumes:
+      - /Users/michaelwojciechowski/workspace/skills/kroger-shopping:/workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
