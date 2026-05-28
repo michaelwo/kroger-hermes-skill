@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from kroger_shopping import KrogerAuthError, KrogerValidationError
+from kroger_shopping import parsers, recommendations, validation
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
@@ -1070,6 +1071,43 @@ def make_detail(product, ingredients=None, nutrition=None):
         nutrition_information=nutrition_information,
         raw=raw,
     )
+
+
+def test_validation_module_rejects_invalid_product_id():
+    with pytest.raises(KrogerValidationError, match="Product ID must be exactly 13 digits"):
+        validation.validate_product_id("12345")
+
+
+def test_parsers_module_maps_product_detail_without_client_instance():
+    detail = parsers.product_detail_from_response(
+        {
+            "upc": "0001111040101",
+            "productId": "0001111040101",
+            "description": "Milk",
+            "items": [{"fulfillment": {"curbside": True}, "inventory": {"stockLevel": "HIGH"}}],
+            "nutritionInformation": {"ingredientStatement": "Milk"},
+        }
+    )
+
+    assert detail.items[0].fulfillment.curbside is True
+    assert detail.items[0].inventory.stock_level == "HIGH"
+    assert detail.nutrition_information[0].ingredient_statement == "Milk"
+
+
+def test_recommendations_module_scores_without_client_instance():
+    product = make_product("0001111040101")
+
+    score = recommendations.score_product_preference(
+        product,
+        make_detail(product, ingredients="Water, sodium benzoate"),
+        original_rank=1,
+        candidate_count=1,
+        preferences=PreferenceProfile(),
+    )
+
+    assert score.unwanted_ingredient_count == 1
+    assert score.unwanted_ingredients == ["Sodium benzoate"]
+
 
 
 def test_preference_scoring_prefers_simple_truth_over_equivalent_product():

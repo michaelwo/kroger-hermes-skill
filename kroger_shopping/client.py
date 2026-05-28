@@ -1,37 +1,27 @@
-import re
-
 import requests
 from typing import Any, List, Optional, Sequence, Union
 from urllib.parse import quote
 
-from .config import KrogerConfig
+from . import parsers, recommendations, validation
 from .auth import KrogerAuthClient
+from .config import KrogerConfig
+from .exceptions import KrogerAuthError, KrogerError, KrogerServerError, KrogerValidationError
 from .models import (
+    CartModality,
+    Chain,
+    Department,
+    Location,
+    PreferenceProfile,
     Product,
+    ProductAllergen,
     ProductDetail,
+    ProductFulfillment,
     ProductItemDetail,
     ProductItemFulfillment,
     ProductItemInventory,
     ProductNutritionInformation,
-    ProductNutrient,
-    ProductAllergen,
-    Location,
-    LocationAddress,
-    GeoLocation,
-    LocationDepartment,
-    Chain,
-    Department,
-    CartModality,
-    ProductFulfillment,
-    PreferenceProfile,
     ProductPreferenceScore,
     RankedProduct,
-)
-from .exceptions import (
-    KrogerAuthError,
-    KrogerError,
-    KrogerValidationError,
-    KrogerServerError,
 )
 
 
@@ -39,12 +29,12 @@ class KrogerClient:
     """High-level client for interacting with Kroger APIs."""
 
     BASE_URL = "https://api.kroger.com"
-    MIN_PRODUCT_SEARCH_LIMIT = 1
-    MAX_PRODUCT_SEARCH_LIMIT = 50
-    MIN_LOCATION_LIMIT = 1
-    MAX_LOCATION_LIMIT = 200
-    MIN_LOCATION_RADIUS = 1
-    MAX_LOCATION_RADIUS = 100
+    MIN_PRODUCT_SEARCH_LIMIT = validation.MIN_PRODUCT_SEARCH_LIMIT
+    MAX_PRODUCT_SEARCH_LIMIT = validation.MAX_PRODUCT_SEARCH_LIMIT
+    MIN_LOCATION_LIMIT = validation.MIN_LOCATION_LIMIT
+    MAX_LOCATION_LIMIT = validation.MAX_LOCATION_LIMIT
+    MIN_LOCATION_RADIUS = validation.MIN_LOCATION_RADIUS
+    MAX_LOCATION_RADIUS = validation.MAX_LOCATION_RADIUS
 
     def __init__(self, config: Optional[KrogerConfig] = None):
         self.config = config or KrogerConfig.from_env()
@@ -117,142 +107,6 @@ class KrogerClient:
             raise KrogerServerError(f"Kroger server error {resp.status_code}: {body}")
         raise KrogerError(f"Kroger API request failed {resp.status_code}: {body}")
 
-    def _validate_search_term(self, term: str) -> str:
-        if term is None:
-            raise KrogerValidationError("Search term is required")
-        term = term.strip()
-        if len(term) < 3:
-            raise KrogerValidationError("Search term must be at least 3 characters")
-        return term
-
-    def _validate_limit(self, limit: int) -> int:
-        if isinstance(limit, bool) or not isinstance(limit, int):
-            raise KrogerValidationError("Search limit must be a whole number")
-        if not self.MIN_PRODUCT_SEARCH_LIMIT <= limit <= self.MAX_PRODUCT_SEARCH_LIMIT:
-            raise KrogerValidationError("Search limit must be between 1 and 50")
-        return limit
-
-    def _validate_location_id(self, location_id: str) -> str:
-        location_id = location_id.strip()
-        if len(location_id) != 8 or not location_id.isdigit():
-            raise KrogerValidationError("Location ID must be exactly 8 digits")
-        return location_id
-
-    def _validate_fulfillment(
-        self,
-        fulfillment: Union[ProductFulfillment, Sequence[ProductFulfillment]],
-    ) -> str:
-        if isinstance(fulfillment, ProductFulfillment):
-            return fulfillment.value
-        if isinstance(fulfillment, str) or not isinstance(fulfillment, Sequence):
-            allowed = ", ".join(item.name for item in ProductFulfillment)
-            raise KrogerValidationError(f"Fulfillment must be ProductFulfillment enum values: {allowed}")
-
-        values = []
-        for item in fulfillment:
-            if not isinstance(item, ProductFulfillment):
-                allowed = ", ".join(value.name for value in ProductFulfillment)
-                raise KrogerValidationError(f"Fulfillment must be ProductFulfillment enum values: {allowed}")
-            values.append(item.value)
-        if not values:
-            raise KrogerValidationError("Fulfillment must include at least one ProductFulfillment value")
-        return ",".join(values)
-
-    def _validate_product_id(self, product_id: str, field_name: str = "Product ID") -> str:
-        if product_id is None:
-            raise KrogerValidationError(f"{field_name} is required")
-        product_id = product_id.strip()
-        if len(product_id) != 13 or not product_id.isdigit():
-            raise KrogerValidationError(f"{field_name} must be exactly 13 digits")
-        return product_id
-
-    def _validate_quantity(self, quantity: int) -> int:
-        if isinstance(quantity, bool) or not isinstance(quantity, int):
-            raise KrogerValidationError("Quantity must be a whole number")
-        if quantity < 1:
-            raise KrogerValidationError("Quantity must be at least 1")
-        return quantity
-
-    def _validate_cart_modality(self, modality: Union[CartModality, str]) -> CartModality:
-        if isinstance(modality, CartModality):
-            return modality
-        if modality is None or not str(modality).strip():
-            raise KrogerValidationError("Cart modality is required")
-
-        value = str(modality).strip().upper()
-        try:
-            return CartModality(value)
-        except ValueError as exc:
-            allowed = ", ".join(item.value for item in CartModality)
-            raise KrogerValidationError(f"Cart modality must be one of: {allowed}") from exc
-
-    def _validate_int_range(
-        self,
-        value: int,
-        field_name: str,
-        minimum: int,
-        maximum: int,
-    ) -> int:
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise KrogerValidationError(f"{field_name} must be a whole number")
-        if not minimum <= value <= maximum:
-            raise KrogerValidationError(f"{field_name} must be between {minimum} and {maximum}")
-        return value
-
-    def _validate_zip_code(self, zip_code: str) -> str:
-        zip_code = zip_code.strip()
-        if len(zip_code) != 5 or not zip_code.isdigit():
-            raise KrogerValidationError("ZIP code must be exactly 5 digits")
-        return zip_code
-
-    def _validate_coordinate(self, value: Union[str, float, int], field_name: str) -> str:
-        try:
-            coordinate = float(value)
-        except (TypeError, ValueError) as exc:
-            raise KrogerValidationError(f"{field_name} must be a number") from exc
-
-        if field_name == "Latitude" and not -90 <= coordinate <= 90:
-            raise KrogerValidationError("Latitude must be between -90 and 90")
-        if field_name == "Longitude" and not -180 <= coordinate <= 180:
-            raise KrogerValidationError("Longitude must be between -180 and 180")
-        return str(value).strip()
-
-    def _validate_lat_long(self, lat_long: str) -> str:
-        parts = [part.strip() for part in lat_long.split(",")]
-        if len(parts) != 2 or not all(parts):
-            raise KrogerValidationError("Latitude/longitude must be formatted as 'lat,lon'")
-        lat = self._validate_coordinate(parts[0], "Latitude")
-        lon = self._validate_coordinate(parts[1], "Longitude")
-        return f"{lat},{lon}"
-
-    def _validate_location_ids(self, location_ids: Union[str, List[str]]) -> str:
-        values = self._split_filter_values(location_ids)
-        return ",".join(self._validate_location_id(value) for value in values)
-
-    def _validate_department_id(self, department_id: str) -> str:
-        department_id = department_id.strip()
-        if len(department_id) != 2 or not department_id.isdigit():
-            raise KrogerValidationError("Department ID must be exactly 2 digits")
-        return department_id
-
-    def _validate_department_ids(self, department_ids: Union[str, List[str]]) -> str:
-        values = self._split_filter_values(department_ids)
-        return ",".join(self._validate_department_id(value) for value in values)
-
-    def _split_filter_values(self, values: Union[str, List[str]]) -> List[str]:
-        if isinstance(values, str):
-            items = [value.strip() for value in values.split(",")]
-        else:
-            items = [str(value).strip() for value in values]
-        if not items or any(not item for item in items):
-            raise KrogerValidationError("Filter values must be non-empty")
-        return items
-
-    def _validate_required_name(self, name: str, field_name: str) -> str:
-        if name is None or not name.strip():
-            raise KrogerValidationError(f"{field_name} is required")
-        return name.strip()
-
     def search_products(
         self,
         term: str,
@@ -275,23 +129,10 @@ class KrogerClient:
             params["filter.brand"] = brand.strip()
 
         resp = self._request("GET", "/v1/products", auth_mode="app", params=params)
-        data = resp.json()
         products = []
-        for item in data.get("data", []):
+        for item in resp.json().get("data", []):
             try:
-                product_items = item.get("items") or []
-                first_item = product_items[0] if product_items else {}
-                products.append(
-                    Product(
-                        upc=item.get("upc", ""),
-                        product_id=item.get("productId", ""),
-                        description=item.get("description", ""),
-                        brand=item.get("brand"),
-                        size=first_item.get("size"),
-                        price=first_item.get("price", {}).get("regular"),
-                        categories=item.get("categories"),
-                    )
-                )
+                products.append(parsers.product_from_response(item))
             except Exception:
                 continue
         return products
@@ -315,109 +156,7 @@ class KrogerClient:
             if not data:
                 return None
             data = data[0]
-        return self._product_detail_from_response(data)
-
-    def _product_detail_from_response(self, item: dict) -> ProductDetail:
-        product_items = item.get("items") or []
-        return ProductDetail(
-            upc=item.get("upc", ""),
-            product_id=item.get("productId", ""),
-            description=item.get("description", ""),
-            brand=item.get("brand"),
-            categories=item.get("categories"),
-            items=[self._product_item_detail_from_response(product_item) for product_item in product_items],
-            images=item.get("images"),
-            aisle_locations=item.get("aisleLocations"),
-            temperature=item.get("temperature"),
-            nutrition_information=self._nutrition_information_from_response(
-                item.get("nutritionInformation") or item.get("nutrition")
-            ),
-            allergens=self._allergens_from_response(item.get("allergens")),
-            allergens_description=item.get("allergensDescription"),
-            snap_eligible=item.get("snapEligible"),
-            organic_claim_name=item.get("organicClaimName"),
-            country_origin=item.get("countryOrigin"),
-            warnings=item.get("warnings"),
-            restrictions=item.get("restrictions") or item.get("retstrictions"),
-            raw=item,
-        )
-
-    def _product_item_detail_from_response(self, item: dict) -> ProductItemDetail:
-        return ProductItemDetail(
-            item_id=item.get("itemId"),
-            size=item.get("size"),
-            sold_by=item.get("soldBy"),
-            price=item.get("price"),
-            national_price=item.get("nationalPrice"),
-            favorite=item.get("favorite"),
-            fulfillment=self._item_fulfillment_from_response(item.get("fulfillment")),
-            inventory=self._item_inventory_from_response(item.get("inventory")),
-            raw=item,
-        )
-
-    def _item_fulfillment_from_response(self, fulfillment: Optional[dict]) -> Optional[ProductItemFulfillment]:
-        if not isinstance(fulfillment, dict):
-            return None
-        return ProductItemFulfillment(
-            curbside=fulfillment.get("curbside"),
-            delivery=fulfillment.get("delivery"),
-            instore=fulfillment.get("instore"),
-            shiptohome=fulfillment.get("shiptohome"),
-            raw=fulfillment,
-        )
-
-    def _item_inventory_from_response(self, inventory: Optional[dict]) -> Optional[ProductItemInventory]:
-        if not isinstance(inventory, dict):
-            return None
-        return ProductItemInventory(stock_level=inventory.get("stockLevel"), raw=inventory)
-
-    def _nutrition_information_from_response(self, nutrition: Any) -> Optional[list[ProductNutritionInformation]]:
-        if not nutrition:
-            return None
-        values = nutrition if isinstance(nutrition, list) else [nutrition]
-        parsed = []
-        for item in values:
-            if not isinstance(item, dict):
-                continue
-            nutrients = []
-            for nutrient in item.get("nutrients") or []:
-                if isinstance(nutrient, dict):
-                    nutrients.append(
-                        ProductNutrient(
-                            code=nutrient.get("code"),
-                            description=nutrient.get("description"),
-                            display_name=nutrient.get("displayName"),
-                            quantity=nutrient.get("quantity"),
-                            unit_of_measure=nutrient.get("unitOfMeasure"),
-                            percent_daily_intake=nutrient.get("percentDailyIntake"),
-                            raw=nutrient,
-                        )
-                    )
-            parsed.append(
-                ProductNutritionInformation(
-                    ingredient_statement=item.get("ingredientStatement"),
-                    serving_size=item.get("servingSize"),
-                    nutrients=nutrients or None,
-                    nutritional_rating=item.get("nutritionalRating"),
-                    raw=item,
-                )
-            )
-        return parsed or None
-
-    def _allergens_from_response(self, allergens: Any) -> Optional[list[ProductAllergen]]:
-        if not allergens:
-            return None
-        parsed = []
-        for item in allergens if isinstance(allergens, list) else [allergens]:
-            if isinstance(item, dict):
-                parsed.append(
-                    ProductAllergen(
-                        name=item.get("name"),
-                        level_of_containment_name=item.get("levelOfContainmentName"),
-                        raw=item,
-                    )
-                )
-        return parsed or None
+        return parsers.product_detail_from_response(data)
 
     def ranked_search_products(
         self,
@@ -450,7 +189,7 @@ class KrogerClient:
             except Exception as exc:
                 detail_warning = f"Product detail unavailable: {exc}"
 
-            score = self._score_product_preference(
+            score = recommendations.score_product_preference(
                 product,
                 detail,
                 original_rank=index,
@@ -468,198 +207,8 @@ class KrogerClient:
                 )
             )
 
-        ranked.sort(key=self._ranked_product_sort_key)
+        ranked.sort(key=recommendations.ranked_product_sort_key)
         return ranked[:limit]
-
-
-    def _ranked_product_sort_key(self, item: RankedProduct) -> tuple:
-        unwanted_count = item.preference_score.unwanted_ingredient_count
-        return (
-            unwanted_count is None,
-            unwanted_count if unwanted_count is not None else 10**9,
-            -item.preference_score.total,
-            item.original_kroger_rank,
-        )
-
-    def _score_product_preference(
-        self,
-        product: Product,
-        detail: Optional[ProductDetail],
-        original_rank: int,
-        candidate_count: int,
-        preferences: PreferenceProfile,
-    ) -> ProductPreferenceScore:
-        score = 0.0
-        reasons = []
-        warnings = []
-        inspected_fields = ["kroger_rank", "brand"]
-
-        rank_points = max(candidate_count - original_rank + 1, 0) * preferences.kroger_rank_weight
-        if rank_points:
-            score += rank_points
-            reasons.append(f"Kroger result order signal +{rank_points:.2f}")
-
-        brand = (product.brand or (detail.brand if detail else None) or "").strip()
-        if brand.lower().startswith("simple truth"):
-            score += preferences.simple_truth_bonus
-            reasons.append(f"Simple Truth brand +{preferences.simple_truth_bonus:.2f}")
-
-        ingredients, ingredient_fields = self._extract_ingredient_text(
-            detail.raw if detail else None,
-            detail.nutrition_information if detail else None,
-        )
-        inspected_fields.extend(ingredient_fields)
-        unwanted_ingredients = []
-        ingredient_match_details = []
-        unwanted_ingredient_count = None
-        if ingredients:
-            matches = self._match_unwanted_ingredients(ingredients, preferences.ingredient_rules)
-            unwanted_ingredients = [match["label"] for match in matches]
-            ingredient_match_details = matches
-            unwanted_ingredient_count = len(matches)
-            if matches:
-                reasons.append(f"Simple Truth unwanted ingredients: {unwanted_ingredient_count}")
-            else:
-                reasons.append("Simple Truth unwanted ingredients: 0")
-            for match in matches:
-                score -= match["penalty"]
-                reasons.append(f"Contains {match['label']} -{match['penalty']:.2f}")
-        else:
-            warnings.append("Ingredients not assessed; Kroger detail did not include ingredient data.")
-
-        nutrition = detail.nutrition_information if detail and detail.nutrition_information else None
-        if nutrition:
-            inspected_fields.append("nutrition_information")
-            score += preferences.nutrition_data_bonus
-            reasons.append(f"Nutrition data available +{preferences.nutrition_data_bonus:.2f}")
-            health_points = self._health_signal_points(nutrition, preferences.health_score_weight)
-            if health_points:
-                score += health_points
-                reasons.append(f"Health/nutrition signal +{health_points:.2f}")
-        else:
-            warnings.append("Nutrition signals not assessed; Kroger detail did not include nutrition data.")
-
-        return ProductPreferenceScore(
-            total=round(score, 2),
-            reasons=reasons,
-            warnings=warnings,
-            inspected_fields=sorted(set(inspected_fields)),
-            unwanted_ingredient_count=unwanted_ingredient_count,
-            unwanted_ingredients=unwanted_ingredients,
-            ingredient_match_details=ingredient_match_details,
-        )
-
-
-    def _match_unwanted_ingredients(
-        self,
-        ingredient_text: str,
-        rules: Sequence,
-    ) -> list[dict[str, Any]]:
-        normalized_ingredients = self._normalize_ingredient_text(ingredient_text)
-        matches_by_label = {}
-        for rule in rules:
-            normalized_keyword = self._normalize_ingredient_text(rule.keyword)
-            if not normalized_keyword:
-                continue
-            if re.search(rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])", normalized_ingredients):
-                matches_by_label.setdefault(
-                    rule.label,
-                    {
-                        "label": rule.label,
-                        "keyword": rule.keyword,
-                        "penalty": rule.penalty,
-                    },
-                )
-        matches = list(matches_by_label.values())
-        self._suppress_broad_unwanted_matches(matches)
-        return sorted(matches, key=lambda match: match["label"].lower())
-
-    def _suppress_broad_unwanted_matches(self, matches: list[dict[str, Any]]) -> None:
-        labels = {match["label"] for match in matches}
-        suppressions = {
-            "EDTA": ("Calcium disodium EDTA", "Disodium calcium EDTA", "Disodium dihydrogen EDTA", "Tetrasodium EDTA"),
-            "Nitrates/nitrites": ("Potassium nitrate or nitrite", "Sodium nitrate/nitrite"),
-            "Propionates": ("Calcium propionate", "Sodium propionate"),
-            "Benzoates in food": ("Potassium benzoate", "Sodium benzoate"),
-        }
-        broad_labels = {
-            broad_label
-            for broad_label, specific_labels in suppressions.items()
-            if broad_label in labels and any(label in labels for label in specific_labels)
-        }
-        if broad_labels:
-            matches[:] = [match for match in matches if match["label"] not in broad_labels]
-
-    def _normalize_ingredient_text(self, value: str) -> str:
-        value = value.lower().replace("&", " ")
-        value = re.sub(r"[^a-z0-9]+", " ", value)
-        return re.sub(r"\s+", " ", value).strip()
-
-    def _extract_ingredient_text(
-        self,
-        raw: Optional[dict[str, Any]],
-        nutrition_information: Optional[list[ProductNutritionInformation]] = None,
-    ) -> tuple[str, list[str]]:
-        values = []
-        fields = []
-
-        for index, nutrition in enumerate(nutrition_information or []):
-            if nutrition.ingredient_statement:
-                values.append(nutrition.ingredient_statement)
-                fields.append(f"nutrition_information[{index}].ingredient_statement")
-
-        if values or not raw:
-            return " ".join(values), fields
-
-        def visit(value: Any, path: str) -> None:
-            if isinstance(value, dict):
-                for key, nested in value.items():
-                    next_path = f"{path}.{key}" if path else str(key)
-                    if "ingredient" in str(key).lower():
-                        extracted = self._stringify_ingredient_value(nested)
-                        if extracted:
-                            values.append(extracted)
-                            fields.append(next_path)
-                    visit(nested, next_path)
-            elif isinstance(value, list):
-                for index, item in enumerate(value):
-                    visit(item, f"{path}[{index}]")
-
-        visit(raw, "raw")
-        return " ".join(values), fields
-
-    def _stringify_ingredient_value(self, value: Any) -> str:
-        if isinstance(value, str):
-            return value
-        if isinstance(value, list):
-            return " ".join(self._stringify_ingredient_value(item) for item in value)
-        if isinstance(value, dict):
-            return " ".join(self._stringify_ingredient_value(item) for item in value.values())
-        return ""
-
-    def _health_signal_points(self, nutrition: Any, weight: float) -> float:
-        nutrition_values = nutrition if isinstance(nutrition, list) else [nutrition]
-        for nutrition_item in nutrition_values:
-            if isinstance(nutrition_item, ProductNutritionInformation):
-                candidates = {"nutritionalRating": nutrition_item.nutritional_rating}
-                if nutrition_item.raw:
-                    candidates.update(nutrition_item.raw)
-            elif isinstance(nutrition_item, dict):
-                candidates = nutrition_item
-            else:
-                continue
-
-            for key in ("healthScore", "nutritionScore", "score", "rating", "optUP", "nutritionalRating"):
-                if key not in candidates:
-                    continue
-                try:
-                    value = float(candidates[key])
-                except (TypeError, ValueError):
-                    continue
-                if value > 5:
-                    value = value / 20
-                return round(max(min(value, 5), 0) * weight, 2)
-        return 0.0
 
     def list_locations(
         self,
@@ -719,13 +268,13 @@ class KrogerClient:
             params["filter.locationId"] = self._validate_location_ids(location_ids)
 
         resp = self._request("GET", "/v1/locations", auth_mode="app", params=params)
-        return [self._location_from_response(item) for item in resp.json().get("data", [])]
+        return [parsers.location_from_response(item) for item in resp.json().get("data", [])]
 
     def get_location(self, location_id: str) -> Optional[Location]:
         location_id = self._validate_location_id(location_id)
         resp = self._request("GET", f"/v1/locations/{location_id}", auth_mode="app")
         data = resp.json().get("data")
-        return self._location_from_response(data) if data else None
+        return parsers.location_from_response(data) if data else None
 
     def location_exists(self, location_id: str) -> bool:
         location_id = self._validate_location_id(location_id)
@@ -733,13 +282,13 @@ class KrogerClient:
 
     def list_chains(self) -> List[Chain]:
         resp = self._request("GET", "/v1/chains", auth_mode="app")
-        return [self._chain_from_response(item) for item in resp.json().get("data", [])]
+        return [parsers.chain_from_response(item) for item in resp.json().get("data", [])]
 
     def get_chain(self, name: str) -> Optional[Chain]:
         name = self._validate_required_name(name, "Chain name")
         resp = self._request("GET", f"/v1/chains/{quote(name, safe='')}", auth_mode="app")
         data = resp.json().get("data")
-        return self._chain_from_response(data) if data else None
+        return parsers.chain_from_response(data) if data else None
 
     def chain_exists(self, name: str) -> bool:
         name = self._validate_required_name(name, "Chain name")
@@ -747,13 +296,13 @@ class KrogerClient:
 
     def list_departments(self) -> List[Department]:
         resp = self._request("GET", "/v1/departments", auth_mode="app")
-        return [self._department_from_response(item) for item in resp.json().get("data", [])]
+        return [parsers.department_from_response(item) for item in resp.json().get("data", [])]
 
     def get_department(self, department_id: str) -> Optional[Department]:
         department_id = self._validate_department_id(department_id)
         resp = self._request("GET", f"/v1/departments/{department_id}", auth_mode="app")
         data = resp.json().get("data")
-        return self._department_from_response(data) if data else None
+        return parsers.department_from_response(data) if data else None
 
     def department_exists(self, department_id: str) -> bool:
         department_id = self._validate_department_id(department_id)
@@ -767,69 +316,6 @@ class KrogerClient:
             if "404" in str(exc):
                 return False
             raise
-
-    def _location_from_response(self, item: dict) -> Location:
-        address = item.get("address") or {}
-        geolocation = item.get("geolocation") or {}
-        departments = item.get("departments") or []
-        return Location(
-            location_id=item.get("locationId", ""),
-            name=item.get("name"),
-            chain=item.get("chain"),
-            phone=item.get("phone"),
-            address=LocationAddress(
-                address_line1=address.get("addressLine1"),
-                address_line2=address.get("addressLine2"),
-                city=address.get("city"),
-                county=address.get("county"),
-                state=address.get("state"),
-                zip_code=address.get("zipCode"),
-                raw=address,
-            ) if address else None,
-            geolocation=GeoLocation(
-                lat_lng=geolocation.get("latLng"),
-                latitude=geolocation.get("latitude"),
-                longitude=geolocation.get("longitude"),
-                raw=geolocation,
-            ) if geolocation else None,
-            departments=[
-                LocationDepartment(
-                    department_id=department.get("departmentId", ""),
-                    name=department.get("name", ""),
-                    phone=department.get("phone"),
-                    hours=department.get("hours"),
-                    raw=department,
-                )
-                for department in departments
-            ],
-            hours=item.get("hours"),
-            store_number=item.get("storeNumber"),
-            division_number=item.get("divisionNumber"),
-            raw=item,
-        )
-
-    def _chain_from_response(self, item: dict) -> Chain:
-        return Chain(
-            name=item.get("name", ""),
-            division_numbers=item.get("divisionNumbers"),
-            domain=item.get("domain"),
-            friendly_banner_name=item.get("friendlyBannerName"),
-            default_title=item.get("defaultTitle"),
-            title_extension=item.get("titleExtension"),
-            apple_app_id=item.get("appleAppId"),
-            google_app_id=item.get("googleAppId"),
-            theme_color=item.get("themeColor"),
-            description=item.get("description"),
-            modality_capabilities=item.get("modalityCapabilities"),
-            raw=item,
-        )
-
-    def _department_from_response(self, item: dict) -> Department:
-        return Department(
-            department_id=item.get("departmentId", ""),
-            name=item.get("name", ""),
-            raw=item,
-        )
 
     def add_to_cart(
         self,
@@ -850,3 +336,132 @@ class KrogerClient:
             json=payload,
         )
         return resp.status_code in (200, 201, 204)
+
+    def _validate_search_term(self, term: str) -> str:
+        return validation.validate_search_term(term)
+
+    def _validate_limit(self, limit: int) -> int:
+        return validation.validate_limit(limit)
+
+    def _validate_location_id(self, location_id: str) -> str:
+        return validation.validate_location_id(location_id)
+
+    def _validate_fulfillment(
+        self,
+        fulfillment: Union[ProductFulfillment, Sequence[ProductFulfillment]],
+    ) -> str:
+        return validation.validate_fulfillment(fulfillment)
+
+    def _validate_product_id(self, product_id: str, field_name: str = "Product ID") -> str:
+        return validation.validate_product_id(product_id, field_name=field_name)
+
+    def _validate_quantity(self, quantity: int) -> int:
+        return validation.validate_quantity(quantity)
+
+    def _validate_cart_modality(self, modality: Union[CartModality, str]) -> CartModality:
+        return validation.validate_cart_modality(modality)
+
+    def _validate_int_range(
+        self,
+        value: int,
+        field_name: str,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        return validation.validate_int_range(value, field_name, minimum, maximum)
+
+    def _validate_zip_code(self, zip_code: str) -> str:
+        return validation.validate_zip_code(zip_code)
+
+    def _validate_coordinate(self, value: Union[str, float, int], field_name: str) -> str:
+        return validation.validate_coordinate(value, field_name)
+
+    def _validate_lat_long(self, lat_long: str) -> str:
+        return validation.validate_lat_long(lat_long)
+
+    def _validate_location_ids(self, location_ids: Union[str, List[str]]) -> str:
+        return validation.validate_location_ids(location_ids)
+
+    def _validate_department_id(self, department_id: str) -> str:
+        return validation.validate_department_id(department_id)
+
+    def _validate_department_ids(self, department_ids: Union[str, List[str]]) -> str:
+        return validation.validate_department_ids(department_ids)
+
+    def _split_filter_values(self, values: Union[str, List[str]]) -> List[str]:
+        return validation.split_filter_values(values)
+
+    def _validate_required_name(self, name: str, field_name: str) -> str:
+        return validation.validate_required_name(name, field_name)
+
+    def _product_detail_from_response(self, item: dict) -> ProductDetail:
+        return parsers.product_detail_from_response(item)
+
+    def _product_item_detail_from_response(self, item: dict) -> ProductItemDetail:
+        return parsers.product_item_detail_from_response(item)
+
+    def _item_fulfillment_from_response(self, fulfillment: Optional[dict]) -> Optional[ProductItemFulfillment]:
+        return parsers.item_fulfillment_from_response(fulfillment)
+
+    def _item_inventory_from_response(self, inventory: Optional[dict]) -> Optional[ProductItemInventory]:
+        return parsers.item_inventory_from_response(inventory)
+
+    def _nutrition_information_from_response(self, nutrition: Any) -> Optional[list[ProductNutritionInformation]]:
+        return parsers.nutrition_information_from_response(nutrition)
+
+    def _allergens_from_response(self, allergens: Any) -> Optional[list[ProductAllergen]]:
+        return parsers.allergens_from_response(allergens)
+
+    def _location_from_response(self, item: dict) -> Location:
+        return parsers.location_from_response(item)
+
+    def _chain_from_response(self, item: dict) -> Chain:
+        return parsers.chain_from_response(item)
+
+    def _department_from_response(self, item: dict) -> Department:
+        return parsers.department_from_response(item)
+
+    def _ranked_product_sort_key(self, item: RankedProduct) -> tuple:
+        return recommendations.ranked_product_sort_key(item)
+
+    def _score_product_preference(
+        self,
+        product: Product,
+        detail: Optional[ProductDetail],
+        original_rank: int,
+        candidate_count: int,
+        preferences: PreferenceProfile,
+    ) -> ProductPreferenceScore:
+        return recommendations.score_product_preference(
+            product,
+            detail,
+            original_rank=original_rank,
+            candidate_count=candidate_count,
+            preferences=preferences,
+        )
+
+    def _match_unwanted_ingredients(
+        self,
+        ingredient_text: str,
+        rules: Sequence,
+    ) -> list[dict[str, Any]]:
+        return recommendations.match_unwanted_ingredients(ingredient_text, rules)
+
+    def _suppress_broad_unwanted_matches(self, matches: list[dict[str, Any]]) -> None:
+        recommendations.suppress_broad_unwanted_matches(matches)
+
+    def _normalize_ingredient_text(self, value: str) -> str:
+        return recommendations.normalize_ingredient_text(value)
+
+    def _extract_ingredient_text(
+        self,
+        raw: Optional[dict[str, Any]],
+        nutrition_information: Optional[list[ProductNutritionInformation]] = None,
+    ) -> tuple[str, list[str]]:
+        return recommendations.extract_ingredient_text(raw, nutrition_information)
+
+    def _stringify_ingredient_value(self, value: Any) -> str:
+        return recommendations.stringify_ingredient_value(value)
+
+    def _health_signal_points(self, nutrition: Any, weight: float) -> float:
+        return recommendations.health_signal_points(nutrition, weight)

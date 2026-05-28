@@ -1,43 +1,31 @@
 ---
 name: kroger-shopping
-description: API-first Kroger shopping agent. Uses the official Kroger Developer APIs (Products + Cart) to resolve items and add them to a user's cart.
+description: API-first Kroger shopping agent. Uses the official Kroger Developer APIs for product search, recommendations, product detail, OAuth, and cart add operations.
 version: 2.0.0
 category: shopping
 ---
 
-# Kroger Shopping Agent (API)
+# Kroger Shopping Agent
 
-**Professional, layered implementation** of the Kroger Developer APIs.
+Layered Kroger Developer API implementation for product discovery and cart adds.
 
-## Architecture
+## Capabilities
 
-- `kroger_shopping/exceptions.py` — Custom exception hierarchy
-- `kroger_shopping/models.py` — Domain models (`Product`, `CartItem`, `TokenSet`)
-- `kroger_shopping/config.py` — Environment-based configuration
-- `kroger_shopping/auth.py` — `KrogerAuthClient` (OAuth2 + token management)
-- `kroger_shopping/client.py` — `KrogerClient` (high-level API usage)
-- `commands/kroger.py` — Slash command handlers
+- `/kroger search <term>` for compact product search
+- `/kroger recommend <term>` for Simple Truth unwanted-ingredient ranking
+- `/kroger add <UPC> [quantity]` for cart add/increase
+- `/kroger login`, `/kroger code`, `/kroger status`, and `/kroger logout` for user OAuth setup
+- Python client access through `KrogerClient`
 
-## Features
+## Implementation Notes
 
-- Automatic token refresh
-- Strong input validation
-- Typed error handling with retries
-- Clean separation of concerns
-- Slash command support (`/kroger search`, `/kroger add`, etc.)
+- Keep the current layers: models, validation, parsers, recommendations, config, auth, client facade, command handlers, tests.
+- Product search uses `GET /v1/products`; product detail uses `GET /v1/products/{id}`.
+- Preserve `raw` payloads on major models so callers can inspect Kroger fields that are not yet typed.
+- Keep request fulfillment filters (`ais`, `csp`, `dth`, `sth`) separate from item fulfillment response booleans (`curbside`, `delivery`, `instore`, `shiptohome`).
+- Recommended search ranks by Simple Truth unwanted ingredient count first, existing score second, Kroger order third.
+- Cart writes require user OAuth with `cart.basic:write` and send the documented `items` wrapper payload.
 
-## Status
+## Development
 
-**Status**: Mature and hardened. Ready for real use. Version 2.0.0 represents the professional refactor.
-
-## Code Structure Preference
-
-When extending this skill, use a layered architecture with clear separation between:
-- Exceptions
-- Domain models
-- Configuration
-- Authentication layer (`KrogerAuthClient`)
-- API client layer (`KrogerClient`)
-- Command handlers
-
-Avoid long imperative functions. This structure was explicitly selected over simpler refactors.
+Use `python -m pytest` for the local unit suite. Do not run live Kroger smoke tests unless explicitly requested or needed for manual verification.

@@ -1,37 +1,39 @@
-# Kroger OAuth2 Endpoint Reference
+# Kroger OAuth2 Notes
 
-## Correct Endpoints (verified May 2026)
+## Endpoints
 
-- **Authorization**: `https://api.kroger.com/v1/connect/oauth2/authorize`
-- **Token**: `https://api.kroger.com/v1/connect/oauth2/token`
+- Authorization: `https://api.kroger.com/v1/connect/oauth2/authorize`
+- Token: `https://api.kroger.com/v1/connect/oauth2/token`
 
-**Important**: The `/oauth2/` segment in the path is required. Using `/v1/connect/authorize` or `/v1/connect/token` returns 404.
+The `/oauth2/` segment is required. Shorter `/connect/authorize` and `/connect/token` paths return 404.
 
-## Working Scopes (for MW-H-Shopper app)
+## Scopes
 
-- `product.compact`
-- `cart.basic:write`
-- `profile.compact`
+- `product.compact` for product search and detail reads
+- `cart.basic:write` for cart add/increase
+- `profile.compact` for profile access when available
 
-## Recommended Flow for Containerized Agents
+## Flows
 
-1. Use `client_credentials` for product search and read operations.
-2. Use Authorization Code grant only when cart write access is needed.
-3. For container environments, implement manual code paste flow instead of local callback server.
-4. Always store tokens in `~/.kroger_tokens.json` with 0600 permissions.
-5. Implement token refresh using the `refresh_token` when available.
+- Use client credentials for product and location reads.
+- Use authorization code for cart writes.
+- Use refresh tokens when available instead of asking the user to re-authorize.
+- Store user tokens in `~/.kroger_tokens.json` or `KROGER_TOKEN_FILE` with `0600` permissions.
 
-## Common Pitfalls Encountered
+## Container Workflow
 
-- Wrong authorize path (`/connect/authorize` vs `/connect/oauth2/authorize`)
-- Using expired single-use authorization codes
-- Truncated tokens saved to file
-- Missing `jq` or `requests` in minimal container environments
+Containerized agents should use the manual code-paste flow:
 
-## Token Response Shape
+1. Run `/kroger login`.
+2. Open the returned Kroger authorization URL.
+3. Sign in and approve scopes.
+4. Copy the `code` query parameter from the redirect URL.
+5. Run `/kroger code <authorization-code>`.
 
-Authorization Code and Refresh responses return:
-- `access_token`
-- `refresh_token` (only on Authorization Code)
-- `expires_in` (usually 1800)
-- `token_type`: "bearer"
+## Common Pitfalls
+
+- Missing `/oauth2/` in endpoint paths
+- Reusing expired or single-use authorization codes
+- Missing `cart.basic:write` for cart operations
+- Saving truncated tokens
+- Committing `.env` files or token files

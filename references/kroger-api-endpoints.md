@@ -1,57 +1,49 @@
-# Kroger API Endpoints (Authoritative)
+# Kroger API Endpoints
 
-## OAuth2 Authorization Code Flow
+Use this as a quick endpoint map. The committed OpenAPI documents in `references/openapi/` are the source of truth for schemas and validator contract tests.
 
-**Correct Authorize Endpoint** (from official tutorial):
-```
-https://api.kroger.com/v1/connect/oauth2/authorize
-```
+## OAuth2
 
-**Correct Token Endpoint**:
-```
-https://api.kroger.com/v1/connect/oauth2/token
-```
+- Authorize: `GET https://api.kroger.com/v1/connect/oauth2/authorize`
+- Token: `POST https://api.kroger.com/v1/connect/oauth2/token`
 
-**Token Request (Authorization Code)**:
-```bash
-curl -X POST 'https://api.kroger.com/v1/connect/oauth2/token' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -H 'Authorization: Basic {{base64(CLIENT_ID:CLIENT_SECRET)}}' \
-  -d 'grant_type=authorization_code&code={{CODE}}&redirect_uri={{REDIRECT_URI}}'
-```
+The `/oauth2/` path segment is required.
 
-**Scopes used**:
-- `product.compact`
-- `cart.basic:write`
-- `profile.compact`
+## Products
 
-## Cart API
+- Search: `GET https://api.kroger.com/v1/products`
+- Detail: `GET https://api.kroger.com/v1/products/{id}`
 
-**Correct Endpoint**:
-```
-PUT https://api.kroger.com/v1/cart/add
-```
+Common search filters:
 
-**Correct Payload** (required structure):
+- `filter.term`
+- `filter.brand`
+- `filter.productId`
+- `filter.locationId`
+- `filter.fulfillment`
+- `filter.limit`
+
+## Cart
+
+- Add/increase: `PUT https://api.kroger.com/v1/cart/add`
+
+Required payload wrapper:
+
 ```json
 {
   "items": [
-    {"upc": "0001111060933", "quantity": 12}
+    {"upc": "0001111060933", "quantity": 1, "modality": "PICKUP"}
   ]
 }
 ```
 
-Error `CART-ADD-2102` ("No items to add") occurs when the `items` wrapper is missing.
+## Locations
 
-## Client Credentials (Product Search)
+- List: `GET https://api.kroger.com/v1/locations`
+- Detail: `GET https://api.kroger.com/v1/locations/{locationId}`
+- Exists: `HEAD https://api.kroger.com/v1/locations/{locationId}`
 
-Works with:
-```
-POST https://api.kroger.com/v1/connect/oauth2/token
-grant_type=client_credentials
-```
+## Chains and Departments
 
-Products endpoint:
-```
-GET https://api.kroger.com/v1/products?filter.term=...&filter.limit=...
-```
+- Chains: `GET /v1/chains`, `GET /v1/chains/{name}`, `HEAD /v1/chains/{name}`
+- Departments: `GET /v1/departments`, `GET /v1/departments/{departmentId}`, `HEAD /v1/departments/{departmentId}`
