@@ -27,6 +27,8 @@ This is an independent, unofficial integration and is not affiliated with, endor
 
 For routine shopping actions, do not inspect source files or rediscover the package layout. Prefer one direct module CLI call after the user intent is clear. Use search or recommend first only when the user provides a product description instead of a UPC, then use the selected UPC with `python -m kroger_shopping add`. Inspect source and tests only when debugging or changing the skill.
 
+When showing `python -m kroger_shopping recommend` results, preserve the CLI stdout line breaks and item formatting exactly. Do not convert recommendations into bullets, tables, prose summaries, or compact single-line items, because the CLI already formats product names, prices, sizes, unit prices, UPCs, and unwanted counts for scanning. It is fine to add one short lead-in sentence before the copied output and one short follow-up question after it.
+
 Keep successful cart responses short: item or UPC, quantity, and modality are enough. Do not include token file paths, OAuth scope details, HTTP status internals, or implementation method names unless the operation fails and that detail helps the user fix it.
 
 ## Implementation Notes
