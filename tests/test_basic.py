@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from kroger_shopping import KrogerAuthError, KrogerValidationError
-from kroger_shopping import parsers, recommendations, validation
+from kroger_shopping import parsers, recommendations, unit_pricing, validation
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
@@ -1101,6 +1101,69 @@ def test_parsers_module_maps_product_search_item_price_metadata():
     assert product.regular_per_unit_estimate == 4.99
 
 
+def test_unit_pricing_parses_supported_size_values():
+    cases = {
+        "11 oz": (11.0, "oz"),
+        "12 fl oz": (12.0, "fl oz"),
+        "1 gal": (1.0, "gal"),
+        "2 lb": (2.0, "lb"),
+        "16 ct": (16.0, "ct"),
+    }
+
+    for size, expected in cases.items():
+        parsed = unit_pricing.parse_size_for_unit_price(size)
+        assert parsed is not None
+        assert (parsed.quantity, parsed.unit) == expected
+
+
+def test_unit_pricing_rejects_ambiguous_size_values():
+    for size in ("6 ct / 12 fl oz", "2 pk", "12 x 5 oz", "about 1 lb", "10-12 oz"):
+        assert unit_pricing.parse_size_for_unit_price(size) is None
+
+
+def test_unit_pricing_prefers_api_estimate_and_computes_fallback():
+    api_product = Product(
+        upc="0001111040101",
+        product_id="0001111040101",
+        description="Milk",
+        price=3.99,
+        size="11 oz",
+        regular_per_unit_estimate=0.42,
+    )
+    computed_product = Product(
+        upc="0001111040102",
+        product_id="0001111040102",
+        description="Sauce",
+        price=3.99,
+        size="11 oz",
+    )
+
+    assert unit_pricing.unit_price_for_product(api_product).source == "api"
+    assert unit_pricing.format_unit_price(api_product) == "$0.42/oz"
+    assert unit_pricing.unit_price_for_product(computed_product).source == "computed"
+    assert unit_pricing.format_unit_price(computed_product) == "$0.36/oz"
+
+
+def test_unit_pricing_formats_missing_or_unparseable_values_as_na():
+    assert unit_pricing.format_unit_price(
+        Product(
+            upc="0001111040101",
+            product_id="0001111040101",
+            description="Sauce",
+            price=3.99,
+            size="6 ct / 12 fl oz",
+        )
+    ) == "N/A"
+    assert unit_pricing.format_unit_price(
+        Product(
+            upc="0001111040102",
+            product_id="0001111040102",
+            description="Sauce",
+            size="11 oz",
+        )
+    ) == "N/A"
+
+
 def test_parsers_module_maps_product_detail_without_client_instance():
     detail = parsers.product_detail_from_response(
         {
@@ -1437,11 +1500,10 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
     product = Product(
         upc="0001111050434",
         product_id="0001111050434",
-        description="Simple Truth Milk",
-        brand="Simple Truth",
-        price=4.99,
-        size="1 gal",
-        regular_per_unit_estimate=4.99,
+        description="TABASCO Sriracha Sauce",
+        brand="Tabasco",
+        price=3.99,
+        size="11 oz",
     )
 
     class Client:
@@ -1463,7 +1525,7 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
 
     assert exit_code == 0
     assert capsys.readouterr().out == (
-        "Simple Truth Milk - Simple Truth | $4.99 | 0001111050434 | size: 1 gal | unit: $4.99 | unwanted: 0\n"
+        "TABASCO Sriracha Sauce - Tabasco | $3.99 | 0001111050434 | size: 11 oz | unit: $0.36/oz | unwanted: 0\n"
     )
 
 
@@ -1492,11 +1554,10 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     product = Product(
         upc="0001111050434",
         product_id="0001111050434",
-        description="Simple Truth Milk",
-        brand="Simple Truth",
-        price=4.99,
-                    size="1 gal",
-                    regular_per_unit_estimate=4.99,
+        description="TABASCO Sriracha Sauce",
+        brand="Tabasco",
+        price=3.99,
+        size="11 oz",
     )
 
     class Client:
@@ -1520,8 +1581,8 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     output = asyncio.run(kroger_command_module.kroger_command(None, "recommend", "whole", "milk"))
 
     assert output == (
-        "**Simple Truth Milk** - Simple Truth | $4.99 | `0001111050434` "
-        "| size: 1 gal | unit: $4.99 | unwanted: 0 | Simple Truth unwanted ingredients: 0"
+        "**TABASCO Sriracha Sauce** - Tabasco | $3.99 | `0001111050434` "
+        "| size: 11 oz | unit: $0.36/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0"
     )
     assert "score" not in output.lower()
 

@@ -1,6 +1,7 @@
 from hermes.commands import command
 from kroger_shopping import KrogerClient, KrogerValidationError
 from kroger_shopping.exceptions import KrogerError
+from kroger_shopping.unit_pricing import format_unit_price
 
 _client = None
 
@@ -65,11 +66,7 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                 score = r.preference_score
                 price = f"${product.price}" if product.price else "N/A"
                 size = product.size or "N/A"
-                unit = (
-                    f"${product.regular_per_unit_estimate:.2f}"
-                    if product.regular_per_unit_estimate is not None
-                    else "N/A"
-                )
+                unit = format_unit_price(product)
                 unwanted = (
                     str(score.unwanted_ingredient_count)
                     if score.unwanted_ingredient_count is not None

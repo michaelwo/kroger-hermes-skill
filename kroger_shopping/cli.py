@@ -6,6 +6,7 @@ from . import validation
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .models import CartModality
+from .unit_pricing import format_unit_price
 
 
 ClientFactory = Callable[[], KrogerClient]
@@ -94,7 +95,7 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
         line = _format_product_line(product.description, product.brand, product.price, product.upc)
         print(
             f"{line} | size: {_format_optional_text(product.size)} "
-            f"| unit: {_format_price(product.regular_per_unit_estimate)} | unwanted: {unwanted}"
+            f"| unit: {format_unit_price(product)} | unwanted: {unwanted}"
         )
     return 0
 
