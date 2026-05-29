@@ -73,6 +73,7 @@ class Product:
     brand: Optional[str] = None
     size: Optional[str] = None
     price: Optional[float] = None
+    regular_per_unit_estimate: Optional[float] = None
     categories: Optional[list] = None
 
 

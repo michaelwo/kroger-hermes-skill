@@ -1078,6 +1078,29 @@ def test_validation_module_rejects_invalid_product_id():
         validation.validate_product_id("12345")
 
 
+def test_parsers_module_maps_product_search_item_price_metadata():
+    product = parsers.product_from_response(
+        {
+            "upc": "0001111040101",
+            "productId": "0001111040101",
+            "description": "Milk",
+            "items": [
+                {
+                    "size": "1 gal",
+                    "price": {
+                        "regular": 4.99,
+                        "regularPerUnitEstimate": 4.99,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert product.size == "1 gal"
+    assert product.price == 4.99
+    assert product.regular_per_unit_estimate == 4.99
+
+
 def test_parsers_module_maps_product_detail_without_client_instance():
     detail = parsers.product_detail_from_response(
         {
@@ -1395,6 +1418,8 @@ def test_cli_search_formats_compact_product_lines(capsys):
                     description="Simple Truth Milk",
                     brand="Simple Truth",
                     price=4.99,
+                    size="1 gal",
+                    regular_per_unit_estimate=4.99,
                 )
             ]
 
@@ -1415,6 +1440,8 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
         description="Simple Truth Milk",
         brand="Simple Truth",
         price=4.99,
+        size="1 gal",
+        regular_per_unit_estimate=4.99,
     )
 
     class Client:
@@ -1436,8 +1463,67 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
 
     assert exit_code == 0
     assert capsys.readouterr().out == (
-        "Simple Truth Milk - Simple Truth | $4.99 | 0001111050434 | unwanted: 0 | score: 92.50\n"
+        "Simple Truth Milk - Simple Truth | $4.99 | 0001111050434 | size: 1 gal | unit: $4.99 | unwanted: 0\n"
     )
+
+
+def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
+    import asyncio
+    import importlib
+    import sys
+    import types
+
+    from kroger_shopping.models import ProductPreferenceScore, RankedProduct
+
+    hermes_module = types.ModuleType("hermes")
+    hermes_commands = types.ModuleType("hermes.commands")
+
+    def command(_name):
+        def decorator(func):
+            return func
+        return decorator
+
+    hermes_commands.command = command
+    monkeypatch.setitem(sys.modules, "hermes", hermes_module)
+    monkeypatch.setitem(sys.modules, "hermes.commands", hermes_commands)
+
+    kroger_command_module = importlib.import_module("commands.kroger")
+
+    product = Product(
+        upc="0001111050434",
+        product_id="0001111050434",
+        description="Simple Truth Milk",
+        brand="Simple Truth",
+        price=4.99,
+                    size="1 gal",
+                    regular_per_unit_estimate=4.99,
+    )
+
+    class Client:
+        def ranked_search_products(self, term, limit=6):
+            assert (term, limit) == ("whole milk", 6)
+            return [
+                RankedProduct(
+                    product=product,
+                    detail=None,
+                    preference_score=ProductPreferenceScore(
+                        total=92.5,
+                        unwanted_ingredient_count=0,
+                        reasons=["Simple Truth unwanted ingredients: 0"],
+                    ),
+                    original_kroger_rank=1,
+                )
+            ]
+
+    monkeypatch.setattr(kroger_command_module, "get_client", lambda: Client())
+
+    output = asyncio.run(kroger_command_module.kroger_command(None, "recommend", "whole", "milk"))
+
+    assert output == (
+        "**Simple Truth Milk** - Simple Truth | $4.99 | `0001111050434` "
+        "| size: 1 gal | unit: $4.99 | unwanted: 0 | Simple Truth unwanted ingredients: 0"
+    )
+    assert "score" not in output.lower()
 
 
 def test_cli_status_reports_auth_state(capsys):

@@ -92,7 +92,10 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             else "unknown"
         )
         line = _format_product_line(product.description, product.brand, product.price, product.upc)
-        print(f"{line} | unwanted: {unwanted} | score: {score.total:.2f}")
+        print(
+            f"{line} | size: {_format_optional_text(product.size)} "
+            f"| unit: {_format_price(product.regular_per_unit_estimate)} | unwanted: {unwanted}"
+        )
     return 0
 
 
@@ -129,3 +132,7 @@ def _format_price(price: Optional[float]) -> str:
     if price is None:
         return "N/A"
     return f"${price:.2f}"
+
+
+def _format_optional_text(value: Optional[str]) -> str:
+    return value if value else "N/A"

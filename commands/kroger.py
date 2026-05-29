@@ -64,6 +64,12 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                 product = r.product
                 score = r.preference_score
                 price = f"${product.price}" if product.price else "N/A"
+                size = product.size or "N/A"
+                unit = (
+                    f"${product.regular_per_unit_estimate:.2f}"
+                    if product.regular_per_unit_estimate is not None
+                    else "N/A"
+                )
                 unwanted = (
                     str(score.unwanted_ingredient_count)
                     if score.unwanted_ingredient_count is not None
@@ -77,7 +83,7 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                 warnings = f" Warning: {'; '.join(score.warnings[:1])}" if score.warnings else ""
                 lines.append(
                     f"**{product.description}** - {product.brand or ''} | {price} | `{product.upc}` "
-                    f"| unwanted: {unwanted}{match_text} | score {score.total:.2f} | {reasons}{warnings}"
+                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}{match_text} | {reasons}{warnings}"
                 )
             return "\n".join(lines)
         except KrogerValidationError as e:

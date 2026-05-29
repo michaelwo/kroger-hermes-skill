@@ -21,13 +21,15 @@ from .models import (
 def product_from_response(item: dict) -> Product:
     product_items = item.get("items") or []
     first_item = product_items[0] if product_items else {}
+    price = first_item.get("price") or {}
     return Product(
         upc=item.get("upc", ""),
         product_id=item.get("productId", ""),
         description=item.get("description", ""),
         brand=item.get("brand"),
         size=first_item.get("size"),
-        price=first_item.get("price", {}).get("regular"),
+        price=price.get("regular"),
+        regular_per_unit_estimate=price.get("regularPerUnitEstimate"),
         categories=item.get("categories"),
     )
 
