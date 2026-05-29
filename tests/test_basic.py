@@ -1373,9 +1373,9 @@ def test_ranked_search_sorts_by_unwanted_ingredient_count_before_score():
 
         def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
             return [
-                make_product("0001111040101", brand="Simple Truth", description="Penalty"),
-                make_product("0001111040102", brand="Kroger", description="Clean"),
-                make_product("0001111040103", brand="Kroger", description="Unknown"),
+                Product(upc="0001111040101", product_id="0001111040101", description="Penalty", brand="Simple Truth", price=1.00, size="16 oz"),
+                Product(upc="0001111040102", product_id="0001111040102", description="Clean", brand="Kroger", price=8.00, size="8 oz"),
+                Product(upc="0001111040103", product_id="0001111040103", description="Unknown", brand="Kroger", price=0.50, size="16 oz"),
             ]
 
         def get_product_detail(self, product_id, location_id=None):
@@ -1390,6 +1390,76 @@ def test_ranked_search_sorts_by_unwanted_ingredient_count_before_score():
 
     assert [item.product.description for item in results] == ["Clean", "Penalty", "Unknown"]
     assert [item.preference_score.unwanted_ingredient_count for item in results] == [0, 2, None]
+
+
+def test_ranked_search_sorts_by_unit_price_before_preference_score():
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                Product(
+                    upc="0001111040101",
+                    product_id="0001111040101",
+                    description="Expensive Preferred",
+                    brand="Simple Truth",
+                    price=8.00,
+                    size="8 oz",
+                ),
+                Product(
+                    upc="0001111040102",
+                    product_id="0001111040102",
+                    description="Cheap Lower Score",
+                    brand="Kroger",
+                    price=4.00,
+                    size="16 oz",
+                ),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            return make_detail(product, ingredients="Milk")
+
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert [item.product.description for item in results] == ["Cheap Lower Score", "Expensive Preferred"]
+    assert results[0].preference_score.total < results[1].preference_score.total
+
+
+def test_ranked_search_sorts_missing_unit_price_after_known_unit_price():
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                Product(
+                    upc="0001111040101",
+                    product_id="0001111040101",
+                    description="Unknown Unit Price",
+                    brand="Simple Truth",
+                    price=3.00,
+                    size=None,
+                ),
+                Product(
+                    upc="0001111040102",
+                    product_id="0001111040102",
+                    description="Known Unit Price",
+                    brand="Kroger",
+                    price=4.00,
+                    size="16 oz",
+                ),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            return make_detail(product, ingredients="Milk")
+
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert [item.product.description for item in results] == ["Known Unit Price", "Unknown Unit Price"]
+    assert results[0].preference_score.total < results[1].preference_score.total
 
 
 def test_ranked_search_uses_original_kroger_order_to_break_ties(tmp_path):

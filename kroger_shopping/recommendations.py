@@ -1,6 +1,7 @@
 import re
 from typing import Any, Optional, Sequence
 
+from . import unit_pricing
 from .models import (
     IngredientPreferenceRule,
     PreferenceProfile,
@@ -14,9 +15,12 @@ from .models import (
 
 def ranked_product_sort_key(item: RankedProduct) -> tuple:
     unwanted_count = item.preference_score.unwanted_ingredient_count
+    unit_price = unit_pricing.unit_price_for_product(item.product)
     return (
         unwanted_count is None,
         unwanted_count if unwanted_count is not None else 10**9,
+        unit_price is None,
+        unit_price.price if unit_price is not None else float("inf"),
         -item.preference_score.total,
         item.original_kroger_rank,
     )
