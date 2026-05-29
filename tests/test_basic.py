@@ -1314,16 +1314,36 @@ def test_simple_truth_unwanted_matching_counts_unique_aliases():
 
 
 
+def test_simple_truth_unwanted_matching_includes_added_gums_and_nitrites():
+    client = KrogerClient.__new__(KrogerClient)
+
+    matches = client._match_unwanted_ingredients(
+        "Water, guar gum, carob bean gum, locust bean gum, xanthan gum, sodium nitrite, potassium nitrite",
+        PreferenceProfile().ingredient_rules,
+    )
+
+    assert [match["label"] for match in matches] == [
+        "Carob bean gum",
+        "Guar gum",
+        "Locust bean gum",
+        "Potassium nitrate or nitrite",
+        "Sodium nitrate/nitrite",
+        "Xanthan gum",
+    ]
+
+
+
 def test_simple_truth_unwanted_matching_suppresses_broad_family_duplicates():
     client = KrogerClient.__new__(KrogerClient)
 
     matches = client._match_unwanted_ingredients(
-        "Water, calcium disodium EDTA, sodium nitrate, sodium propionate",
+        "Water, calcium disodium EDTA, sodium nitrate, sodium propionate, hydroxypropyl guar gum",
         PreferenceProfile().ingredient_rules,
     )
 
     assert [match["label"] for match in matches] == [
         "Calcium disodium EDTA",
+        "Hydroxypropyl guar gum",
         "Sodium nitrate/nitrite",
         "Sodium propionate",
     ]

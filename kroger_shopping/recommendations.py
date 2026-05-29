@@ -121,6 +121,7 @@ def suppress_broad_unwanted_matches(matches: list[dict[str, Any]]) -> None:
         "Nitrates/nitrites": ("Potassium nitrate or nitrite", "Sodium nitrate/nitrite"),
         "Propionates": ("Calcium propionate", "Sodium propionate"),
         "Benzoates in food": ("Potassium benzoate", "Sodium benzoate"),
+        "Guar gum": ("Hydroxypropyl guar gum",),
     }
     broad_labels = {
         broad_label
