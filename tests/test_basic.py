@@ -1574,8 +1574,11 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
 
     assert exit_code == 0
     assert capsys.readouterr().out == (
-        "Kroger Cheddar Block - Kroger | $4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0\n"
-        "Simple Truth Cheddar Block - Simple Truth | $5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0\n"
+        "Kroger Cheddar Block\n"
+        "$4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0\n"
+        "\n"
+        "Simple Truth Cheddar Block\n"
+        "$5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0\n"
     )
 
 
@@ -1642,9 +1645,12 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     output = asyncio.run(kroger_command_module.kroger_command(None, "recommend", "cheddar"))
 
     assert output == (
-        "**Kroger Cheddar Block** - Kroger | $4.0 | `0001111050434` "
+        "**Kroger Cheddar Block**\n"
+        "$4.0 | `0001111050434` "
         "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0\n"
-        "**Simple Truth Cheddar Block** - Simple Truth | $5.99 | `0001111050435` "
+        "\n"
+        "**Simple Truth Cheddar Block**\n"
+        "$5.99 | `0001111050435` "
         "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0"
     )
     assert "score" not in output.lower()

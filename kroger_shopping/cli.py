@@ -85,6 +85,7 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
         print("No products found.")
         return 0
     products = [item.product for item in ranked]
+    blocks = []
     for item in ranked:
         product = item.product
         score = item.preference_score
@@ -93,11 +94,13 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             if score.unwanted_ingredient_count is not None
             else "unknown"
         )
-        line = _format_product_line(product.description, product.brand, product.price, product.upc)
-        print(
-            f"{line} | size: {_format_optional_text(product.size)} "
+        metadata = (
+            f"{_format_price(product.price)} | {product.upc} "
+            f"| size: {_format_optional_text(product.size)} "
             f"| unit: {format_unit_price_for_products(product, products)} | unwanted: {unwanted}"
         )
+        blocks.append(f"{product.description}\n{metadata}")
+    print("\n\n".join(blocks))
     return 0
 
 

@@ -79,11 +79,12 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                 match_text = f" | matches: {matches}" if matches else ""
                 reasons = "; ".join(score.reasons[:3]) or "No preference signals available"
                 warnings = f" Warning: {'; '.join(score.warnings[:1])}" if score.warnings else ""
-                lines.append(
-                    f"**{product.description}** - {product.brand or ''} | {price} | `{product.upc}` "
+                metadata = (
+                    f"{price} | `{product.upc}` "
                     f"| size: {size} | unit: {unit} | unwanted: {unwanted}{match_text} | {reasons}{warnings}"
                 )
-            return "\n".join(lines)
+                lines.append(f"**{product.description}**\n{metadata}")
+            return "\n\n".join(lines)
         except KrogerValidationError as e:
             return f"Validation error: {e}"
         except KrogerError as e:
