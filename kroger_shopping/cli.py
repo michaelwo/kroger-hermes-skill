@@ -6,7 +6,7 @@ from . import validation
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .models import CartModality
-from .unit_pricing import format_unit_price
+from .unit_pricing import format_unit_price_for_products
 
 
 ClientFactory = Callable[[], KrogerClient]
@@ -84,6 +84,7 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
     if not ranked:
         print("No products found.")
         return 0
+    products = [item.product for item in ranked]
     for item in ranked:
         product = item.product
         score = item.preference_score
@@ -95,7 +96,7 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
         line = _format_product_line(product.description, product.brand, product.price, product.upc)
         print(
             f"{line} | size: {_format_optional_text(product.size)} "
-            f"| unit: {format_unit_price(product)} | unwanted: {unwanted}"
+            f"| unit: {format_unit_price_for_products(product, products)} | unwanted: {unwanted}"
         )
     return 0
 

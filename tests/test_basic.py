@@ -1103,17 +1103,18 @@ def test_parsers_module_maps_product_search_item_price_metadata():
 
 def test_unit_pricing_parses_supported_size_values():
     cases = {
-        "11 oz": (11.0, "oz"),
-        "12 fl oz": (12.0, "fl oz"),
-        "1 gal": (1.0, "gal"),
-        "2 lb": (2.0, "lb"),
-        "16 ct": (16.0, "ct"),
+        "11 oz": (11.0, "oz", 11.0, "oz"),
+        "12 fl oz": (12.0, "fl oz", 12.0, "fl oz"),
+        "1 gal": (1.0, "gal", 128.0, "fl oz"),
+        "2 lb": (2.0, "lb", 32.0, "oz"),
+        "1 kg": (1.0, "kg", 1000.0, "g"),
+        "16 ct": (16.0, "ct", 16.0, "ct"),
     }
 
     for size, expected in cases.items():
         parsed = unit_pricing.parse_size_for_unit_price(size)
         assert parsed is not None
-        assert (parsed.quantity, parsed.unit) == expected
+        assert (parsed.quantity, parsed.unit, parsed.base_quantity, parsed.base_unit) == expected
 
 
 def test_unit_pricing_rejects_ambiguous_size_values():
@@ -1142,6 +1143,43 @@ def test_unit_pricing_prefers_api_estimate_and_computes_fallback():
     assert unit_pricing.format_unit_price(api_product) == "$0.42/oz"
     assert unit_pricing.unit_price_for_product(computed_product).source == "computed"
     assert unit_pricing.format_unit_price(computed_product) == "$0.36/oz"
+
+
+def test_unit_pricing_normalizes_convertible_units_to_smallest_common_unit():
+    one_pound = Product(
+        upc="0001111040101",
+        product_id="0001111040101",
+        description="Cheddar",
+        price=5.99,
+        size="1 lb",
+    )
+    one_gallon = Product(
+        upc="0001111040102",
+        product_id="0001111040102",
+        description="Milk",
+        price=4.99,
+        size="1 gal",
+    )
+    one_kilogram = Product(
+        upc="0001111040103",
+        product_id="0001111040103",
+        description="Flour",
+        price=2.99,
+        size="1 kg",
+    )
+    api_pound = Product(
+        upc="0001111040104",
+        product_id="0001111040104",
+        description="Cheddar",
+        price=5.99,
+        size="1 lb",
+        regular_per_unit_estimate=5.99,
+    )
+
+    assert unit_pricing.format_unit_price(one_pound) == "$0.37/oz"
+    assert unit_pricing.format_unit_price(one_gallon) == "$0.04/fl oz"
+    assert unit_pricing.format_unit_price(one_kilogram) == "$0.00/g"
+    assert unit_pricing.format_unit_price(api_pound) == "$0.37/oz"
 
 
 def test_unit_pricing_formats_missing_or_unparseable_values_as_na():
@@ -1497,18 +1535,28 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
     from kroger_shopping import cli
     from kroger_shopping.models import ProductPreferenceScore, RankedProduct
 
-    product = Product(
-        upc="0001111050434",
-        product_id="0001111050434",
-        description="TABASCO Sriracha Sauce",
-        brand="Tabasco",
-        price=3.99,
-        size="11 oz",
-    )
+    products = [
+        Product(
+            upc="0001111050434",
+            product_id="0001111050434",
+            description="Kroger Cheddar Block",
+            brand="Kroger",
+            price=4.00,
+            size="8 oz",
+        ),
+        Product(
+            upc="0001111050435",
+            product_id="0001111050435",
+            description="Simple Truth Cheddar Block",
+            brand="Simple Truth",
+            price=5.99,
+            size="1 lb",
+        ),
+    ]
 
     class Client:
         def ranked_search_products(self, term, limit=10):
-            assert (term, limit) == ("whole milk", 1)
+            assert (term, limit) == ("cheddar", 2)
             return [
                 RankedProduct(
                     product=product,
@@ -1517,15 +1565,17 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
                         total=92.5,
                         unwanted_ingredient_count=0,
                     ),
-                    original_kroger_rank=1,
+                    original_kroger_rank=index,
                 )
+                for index, product in enumerate(products, start=1)
             ]
 
-    exit_code = cli.main(["recommend", "whole", "milk", "--limit", "1"], client_factory=Client)
+    exit_code = cli.main(["recommend", "cheddar", "--limit", "2"], client_factory=Client)
 
     assert exit_code == 0
     assert capsys.readouterr().out == (
-        "TABASCO Sriracha Sauce - Tabasco | $3.99 | 0001111050434 | size: 11 oz | unit: $0.36/oz | unwanted: 0\n"
+        "Kroger Cheddar Block - Kroger | $4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0\n"
+        "Simple Truth Cheddar Block - Simple Truth | $5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0\n"
     )
 
 
@@ -1551,18 +1601,28 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
 
     kroger_command_module = importlib.import_module("commands.kroger")
 
-    product = Product(
-        upc="0001111050434",
-        product_id="0001111050434",
-        description="TABASCO Sriracha Sauce",
-        brand="Tabasco",
-        price=3.99,
-        size="11 oz",
-    )
+    products = [
+        Product(
+            upc="0001111050434",
+            product_id="0001111050434",
+            description="Kroger Cheddar Block",
+            brand="Kroger",
+            price=4.00,
+            size="8 oz",
+        ),
+        Product(
+            upc="0001111050435",
+            product_id="0001111050435",
+            description="Simple Truth Cheddar Block",
+            brand="Simple Truth",
+            price=5.99,
+            size="1 lb",
+        ),
+    ]
 
     class Client:
         def ranked_search_products(self, term, limit=6):
-            assert (term, limit) == ("whole milk", 6)
+            assert (term, limit) == ("cheddar", 6)
             return [
                 RankedProduct(
                     product=product,
@@ -1572,17 +1632,20 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
                         unwanted_ingredient_count=0,
                         reasons=["Simple Truth unwanted ingredients: 0"],
                     ),
-                    original_kroger_rank=1,
+                    original_kroger_rank=index,
                 )
+                for index, product in enumerate(products, start=1)
             ]
 
     monkeypatch.setattr(kroger_command_module, "get_client", lambda: Client())
 
-    output = asyncio.run(kroger_command_module.kroger_command(None, "recommend", "whole", "milk"))
+    output = asyncio.run(kroger_command_module.kroger_command(None, "recommend", "cheddar"))
 
     assert output == (
-        "**TABASCO Sriracha Sauce** - Tabasco | $3.99 | `0001111050434` "
-        "| size: 11 oz | unit: $0.36/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0"
+        "**Kroger Cheddar Block** - Kroger | $4.0 | `0001111050434` "
+        "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0\n"
+        "**Simple Truth Cheddar Block** - Simple Truth | $5.99 | `0001111050435` "
+        "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0"
     )
     assert "score" not in output.lower()
 
