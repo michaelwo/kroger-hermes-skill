@@ -23,11 +23,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     search = subparsers.add_parser("search", help="Search Kroger products")
     search.add_argument("term", nargs="+")
-    search.add_argument("--limit", type=int, default=6)
+    search.add_argument("--limit", type=int, default=10)
 
     recommend = subparsers.add_parser("recommend", help="Rank Kroger products by local preferences")
     recommend.add_argument("term", nargs="+")
-    recommend.add_argument("--limit", type=int, default=6)
+    recommend.add_argument("--limit", type=int, default=10)
 
     add = subparsers.add_parser("add", help="Add a UPC to the Kroger cart")
     add.add_argument("upc")

@@ -41,7 +41,7 @@ async def kroger_command(ctx, subcommand: str = None, *args):
             return "Usage: /kroger search <term>"
         term = " ".join(args)
         try:
-            results = client.search_products(term, limit=6)
+            results = client.search_products(term, limit=10)
             if not results:
                 return "No products found."
             lines = []
@@ -57,7 +57,7 @@ async def kroger_command(ctx, subcommand: str = None, *args):
             return "Usage: /kroger recommend <term>"
         term = " ".join(args)
         try:
-            results = client.ranked_search_products(term, limit=6)
+            results = client.ranked_search_products(term, limit=10)
             if not results:
                 return "No products found."
             lines = []

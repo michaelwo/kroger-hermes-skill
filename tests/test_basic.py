@@ -1624,8 +1624,8 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     ]
 
     class Client:
-        def ranked_search_products(self, term, limit=6):
-            assert (term, limit) == ("cheddar", 6)
+        def ranked_search_products(self, term, limit=10):
+            assert (term, limit) == ("cheddar", 10)
             return [
                 RankedProduct(
                     product=product,
