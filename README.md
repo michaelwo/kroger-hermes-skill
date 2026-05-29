@@ -14,6 +14,7 @@ This project is an independent, unofficial client and is not affiliated with, en
 - Cart add/increase support through `PUT /v1/cart/add`
 - OAuth2 authorization-code flow for cart writes, with token refresh and secure token file permissions
 - Slash commands under `/kroger`
+- Low-noise module CLI for agent and terminal usage
 
 ## Configuration
 
@@ -28,6 +29,19 @@ export KROGER_TOKEN_FILE=~/.kroger_tokens.json # optional
 ```
 
 `KROGER_DEFAULT_LOCATION_ID` is used when a search/detail call does not pass `location_id`. Location-specific product calls are needed for price, fulfillment, aisle, and inventory fields. `KROGER_TOKEN_FILE` stores user OAuth tokens for cart writes and should never be committed.
+
+## Module CLI
+
+Use this entrypoint when an agent or terminal needs a direct, predictable operation without inspecting source files:
+
+```text
+python -m kroger_shopping search <term> [--limit N]
+python -m kroger_shopping recommend <term> [--limit N]
+python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]
+python -m kroger_shopping status
+```
+
+Successful cart output is intentionally compact and omits token paths, OAuth internals, and HTTP details.
 
 ## Slash Commands
 

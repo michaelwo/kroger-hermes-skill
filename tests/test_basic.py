@@ -1321,3 +1321,145 @@ def test_ranked_search_fetches_details_for_candidates_and_survives_one_failure()
     failed = [item for item in results if item.product.product_id == "0001111040102"]
     assert not failed or any("Product detail unavailable" in warning for warning in failed[0].preference_score.warnings)
     assert any(item.product.brand == "Simple Truth" for item in results)
+
+
+def test_cli_add_defaults_to_pickup_quantity_one(capsys):
+    from kroger_shopping import cli
+
+    calls = []
+
+    class Client:
+        def add_to_cart(self, upc, quantity=1, modality=CartModality.PICKUP):
+            calls.append((upc, quantity, modality))
+            return True
+
+    exit_code = cli.main(["add", "0001111050434"], client_factory=Client)
+
+    assert exit_code == 0
+    assert calls == [("0001111050434", 1, CartModality.PICKUP)]
+    assert capsys.readouterr().out == (
+        "Added to cart: UPC 0001111050434, quantity 1, modality PICKUP.\n"
+    )
+
+
+def test_cli_add_passes_quantity_and_delivery_modality(capsys):
+    from kroger_shopping import cli
+
+    calls = []
+
+    class Client:
+        def add_to_cart(self, upc, quantity=1, modality=CartModality.PICKUP):
+            calls.append((upc, quantity, modality))
+            return True
+
+    exit_code = cli.main(
+        ["add", "0001111050434", "--quantity", "3", "--modality", "delivery"],
+        client_factory=Client,
+    )
+
+    assert exit_code == 0
+    assert calls == [("0001111050434", 3, CartModality.DELIVERY)]
+    assert "quantity 3, modality DELIVERY" in capsys.readouterr().out
+
+
+def test_cli_add_rejects_invalid_quantity_concisely(capsys):
+    from kroger_shopping import cli
+
+    class Client:
+        def add_to_cart(self, upc, quantity=1, modality=CartModality.PICKUP):
+            raise AssertionError("add_to_cart should not be called")
+
+    exit_code = cli.main(
+        ["add", "0001111050434", "--quantity", "1.5"],
+        client_factory=Client,
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err == "Validation error: Quantity must be a whole number\n"
+
+
+def test_cli_search_formats_compact_product_lines(capsys):
+    from kroger_shopping import cli
+
+    calls = []
+
+    class Client:
+        def search_products(self, term, limit=10):
+            calls.append((term, limit))
+            return [
+                Product(
+                    upc="0001111050434",
+                    product_id="0001111050434",
+                    description="Simple Truth Milk",
+                    brand="Simple Truth",
+                    price=4.99,
+                )
+            ]
+
+    exit_code = cli.main(["search", "whole", "milk", "--limit", "1"], client_factory=Client)
+
+    assert exit_code == 0
+    assert calls == [("whole milk", 1)]
+    assert capsys.readouterr().out == "Simple Truth Milk - Simple Truth | $4.99 | 0001111050434\n"
+
+
+def test_cli_recommend_formats_compact_ranked_lines(capsys):
+    from kroger_shopping import cli
+    from kroger_shopping.models import ProductPreferenceScore, RankedProduct
+
+    product = Product(
+        upc="0001111050434",
+        product_id="0001111050434",
+        description="Simple Truth Milk",
+        brand="Simple Truth",
+        price=4.99,
+    )
+
+    class Client:
+        def ranked_search_products(self, term, limit=10):
+            assert (term, limit) == ("whole milk", 1)
+            return [
+                RankedProduct(
+                    product=product,
+                    detail=None,
+                    preference_score=ProductPreferenceScore(
+                        total=92.5,
+                        unwanted_ingredient_count=0,
+                    ),
+                    original_kroger_rank=1,
+                )
+            ]
+
+    exit_code = cli.main(["recommend", "whole", "milk", "--limit", "1"], client_factory=Client)
+
+    assert exit_code == 0
+    assert capsys.readouterr().out == (
+        "Simple Truth Milk - Simple Truth | $4.99 | 0001111050434 | unwanted: 0 | score: 92.50\n"
+    )
+
+
+def test_cli_status_reports_auth_state(capsys):
+    from kroger_shopping import cli
+
+    class Auth:
+        def __init__(self, active):
+            self.active = active
+
+        def has_valid_user_tokens(self):
+            return self.active
+
+    class ActiveClient:
+        auth = Auth(True)
+
+    class MissingClient:
+        auth = Auth(False)
+
+    assert cli.main(["status"], client_factory=ActiveClient) == 0
+    assert capsys.readouterr().out == "Kroger user authentication is active.\n"
+
+    assert cli.main(["status"], client_factory=MissingClient) == 0
+    assert capsys.readouterr().out == (
+        "Kroger user authentication is missing or expired. Run /kroger login.\n"
+    )

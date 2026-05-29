@@ -17,7 +17,17 @@ This is an independent, unofficial integration and is not affiliated with, endor
 - `/kroger recommend <term>` for Simple Truth unwanted-ingredient ranking
 - `/kroger add <UPC> [quantity]` for cart add/increase
 - `/kroger login`, `/kroger code`, `/kroger status`, and `/kroger logout` for user OAuth setup
+- `python -m kroger_shopping search <term>` for low-noise terminal search
+- `python -m kroger_shopping recommend <term>` for low-noise terminal recommendations
+- `python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]` for low-noise cart adds
+- `python -m kroger_shopping status` for low-noise auth checks
 - Python client access through `KrogerClient`
+
+## Normal Hermes Usage
+
+For routine shopping actions, do not inspect source files or rediscover the package layout. Prefer one direct module CLI call after the user intent is clear. Use search or recommend first only when the user provides a product description instead of a UPC, then use the selected UPC with `python -m kroger_shopping add`. Inspect source and tests only when debugging or changing the skill.
+
+Keep successful cart responses short: item or UPC, quantity, and modality are enough. Do not include token file paths, OAuth scope details, HTTP status internals, or implementation method names unless the operation fails and that detail helps the user fix it.
 
 ## Implementation Notes
 
