@@ -1117,6 +1117,23 @@ def test_unit_pricing_parses_supported_size_values():
         assert (parsed.quantity, parsed.unit, parsed.base_quantity, parsed.base_unit) == expected
 
 
+def test_unit_pricing_parses_counted_total_size_values():
+    cases = {
+        "4 / 16oz": (16.0, "oz", 16.0, "oz"),
+        "2 / 8oz": (8.0, "oz", 8.0, "oz"),
+        "4/16 oz": (16.0, "oz", 16.0, "oz"),
+        "4 sticks / 16 oz": (16.0, "oz", 16.0, "oz"),
+        "2 sticks / 8 oz": (8.0, "oz", 8.0, "oz"),
+        "4 sticks / 16 oz / 2pk": (32.0, "oz", 32.0, "oz"),
+        "4 sticks / 16 oz / 2 pk": (32.0, "oz", 32.0, "oz"),
+    }
+
+    for size, expected in cases.items():
+        parsed = unit_pricing.parse_size_for_unit_price(size)
+        assert parsed is not None
+        assert (parsed.quantity, parsed.unit, parsed.base_quantity, parsed.base_unit) == expected
+
+
 def test_unit_pricing_rejects_ambiguous_size_values():
     for size in ("6 ct / 12 fl oz", "2 pk", "12 x 5 oz", "about 1 lb", "10-12 oz"):
         assert unit_pricing.parse_size_for_unit_price(size) is None
@@ -1180,6 +1197,27 @@ def test_unit_pricing_normalizes_convertible_units_to_smallest_common_unit():
     assert unit_pricing.format_unit_price(one_gallon) == "$0.04/fl oz"
     assert unit_pricing.format_unit_price(one_kilogram) == "$0.00/g"
     assert unit_pricing.format_unit_price(api_pound) == "$0.37/oz"
+
+
+def test_unit_pricing_formats_counted_total_size_values():
+    assert unit_pricing.format_unit_price(
+        Product(
+            upc="0001111040101",
+            product_id="0001111040101",
+            description="Butter",
+            price=4.00,
+            size="4 / 16oz",
+        )
+    ) == "$0.25/oz"
+    assert unit_pricing.format_unit_price(
+        Product(
+            upc="0001111040102",
+            product_id="0001111040102",
+            description="Butter",
+            price=5.99,
+            size="4 sticks / 16 oz / 2pk",
+        )
+    ) == "$0.19/oz"
 
 
 def test_unit_pricing_formats_missing_or_unparseable_values_as_na():

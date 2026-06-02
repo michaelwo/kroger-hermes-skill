@@ -74,6 +74,10 @@ def parse_size_for_unit_price(size: Optional[str]) -> Optional[ParsedSize]:
     if not normalized:
         return None
 
+    counted_total_size = _parse_counted_total_size(normalized)
+    if counted_total_size is not None:
+        return counted_total_size
+
     if _is_ambiguous_size(normalized):
         return None
 
@@ -81,6 +85,10 @@ def parse_size_for_unit_price(size: Optional[str]) -> Optional[ParsedSize]:
     if not match:
         return None
 
+    return _parsed_size_from_match(match)
+
+
+def _parsed_size_from_match(match: re.Match[str]) -> Optional[ParsedSize]:
     quantity = float(match.group(1))
     if quantity <= 0:
         return None
@@ -97,6 +105,33 @@ def parse_size_for_unit_price(size: Optional[str]) -> Optional[ParsedSize]:
         family=family,
         base_quantity=quantity * base_multiplier,
         base_unit=base_unit,
+    )
+
+
+def _parse_counted_total_size(size: str) -> Optional[ParsedSize]:
+    match = re.fullmatch(
+        r"\d+(?:\.\d+)?(?:\s+sticks?)?\s*/\s*"
+        r"(\d+(?:\.\d+)?)\s*([a-z. ]+?)"
+        r"(?:\s*/\s*(\d+(?:\.\d+)?)\s*pk)?",
+        size,
+    )
+    if not match:
+        return None
+
+    parsed_size = _parsed_size_from_match(match)
+    if parsed_size is None:
+        return None
+
+    pack_count = float(match.group(3)) if match.group(3) else 1.0
+    if pack_count <= 0:
+        return None
+
+    return ParsedSize(
+        quantity=parsed_size.quantity * pack_count,
+        unit=parsed_size.unit,
+        family=parsed_size.family,
+        base_quantity=parsed_size.base_quantity * pack_count,
+        base_unit=parsed_size.base_unit,
     )
 
 
