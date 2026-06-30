@@ -1126,6 +1126,11 @@ def test_unit_pricing_parses_counted_total_size_values():
         "2 sticks / 8 oz": (8.0, "oz", 8.0, "oz"),
         "4 sticks / 16 oz / 2pk": (32.0, "oz", 32.0, "oz"),
         "4 sticks / 16 oz / 2 pk": (32.0, "oz", 32.0, "oz"),
+        "6 ct / 12 fl oz": (72.0, "fl oz", 72.0, "fl oz"),
+        "12 ct / 12 fl oz": (144.0, "fl oz", 144.0, "fl oz"),
+        "8 bottles / 12 fl oz": (96.0, "fl oz", 96.0, "fl oz"),
+        "8 x 16.9 fl oz": (135.2, "fl oz", 135.2, "fl oz"),
+        "12 x 5 oz": (60.0, "oz", 60.0, "oz"),
     }
 
     for size, expected in cases.items():
@@ -1135,7 +1140,7 @@ def test_unit_pricing_parses_counted_total_size_values():
 
 
 def test_unit_pricing_rejects_ambiguous_size_values():
-    for size in ("6 ct / 12 fl oz", "2 pk", "12 x 5 oz", "about 1 lb", "10-12 oz"):
+    for size in ("2 pk", "about 1 lb", "10-12 oz"):
         assert unit_pricing.parse_size_for_unit_price(size) is None
 
 
@@ -1227,7 +1232,7 @@ def test_unit_pricing_formats_missing_or_unparseable_values_as_na():
             product_id="0001111040101",
             description="Sauce",
             price=3.99,
-            size="6 ct / 12 fl oz",
+            size="2 pk",
         )
     ) == "N/A"
     assert unit_pricing.format_unit_price(

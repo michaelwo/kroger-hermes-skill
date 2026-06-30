@@ -88,16 +88,17 @@ def parse_size_for_unit_price(size: Optional[str]) -> Optional[ParsedSize]:
     return _parsed_size_from_match(match)
 
 
-def _parsed_size_from_match(match: re.Match[str]) -> Optional[ParsedSize]:
-    quantity = float(match.group(1))
+def _parsed_size_from_unit_qty(qty_str: str, unit_str: str) -> Optional[ParsedSize]:
+    try:
+        quantity = float(qty_str)
+    except (ValueError, TypeError):
+        return None
     if quantity <= 0:
         return None
-
-    unit_key = re.sub(r"\s+", " ", match.group(2).replace(".", " ")).strip()
+    unit_key = re.sub(r"\s+", " ", unit_str.replace(".", " ")).strip()
     unit = _UNIT_ALIASES.get(unit_key)
     if not unit:
         return None
-
     family, base_unit, base_multiplier = _UNIT_METADATA[unit]
     return ParsedSize(
         quantity=quantity,
@@ -108,9 +109,41 @@ def _parsed_size_from_match(match: re.Match[str]) -> Optional[ParsedSize]:
     )
 
 
+def _parsed_size_from_match(match: re.Match[str]) -> Optional[ParsedSize]:
+    return _parsed_size_from_unit_qty(match.group(1), match.group(2))
+
+
+# Labels that indicate the outer count is a per-unit multiplier (not just a descriptor).
+# "sticks" and plain counts mean M is the total size; "ct"/"bottles"/"cans" mean N×M is total.
+_MULTIPACK_MULTIPLIER_LABELS = frozenset({"ct", "bottle", "bottles", "can", "cans"})
+
+
 def _parse_counted_total_size(size: str) -> Optional[ParsedSize]:
+    # "N x M unit" → N × M total
+    x_match = re.fullmatch(
+        r"(\d+(?:\.\d+)?)\s+x\s+(\d+(?:\.\d+)?)\s*([a-z. ]+)",
+        size,
+    )
+    if x_match:
+        count = float(x_match.group(1))
+        if count <= 0:
+            return None
+        parsed = _parsed_size_from_unit_qty(x_match.group(2), x_match.group(3))
+        if parsed is None:
+            return None
+        return ParsedSize(
+            quantity=parsed.quantity * count,
+            unit=parsed.unit,
+            family=parsed.family,
+            base_quantity=parsed.base_quantity * count,
+            base_unit=parsed.base_unit,
+        )
+
+    # "N[label] / M unit [/ pk pk]" format
+    # When label is "ct"/"bottles"/"cans", outer count N is a per-unit multiplier (total = N×M).
+    # When label is "sticks" or absent, M is already the total size (total = M).
     match = re.fullmatch(
-        r"\d+(?:\.\d+)?(?:\s+sticks?)?\s*/\s*"
+        r"(\d+(?:\.\d+)?)(\s+(?:sticks?|ct|bottles?|cans?))?\s*/\s*"
         r"(\d+(?:\.\d+)?)\s*([a-z. ]+?)"
         r"(?:\s*/\s*(\d+(?:\.\d+)?)\s*pk)?",
         size,
@@ -118,20 +151,29 @@ def _parse_counted_total_size(size: str) -> Optional[ParsedSize]:
     if not match:
         return None
 
-    parsed_size = _parsed_size_from_match(match)
-    if parsed_size is None:
-        return None
-
-    pack_count = float(match.group(3)) if match.group(3) else 1.0
+    label = (match.group(2) or "").strip()
+    pack_count = float(match.group(5)) if match.group(5) else 1.0
     if pack_count <= 0:
         return None
 
+    parsed = _parsed_size_from_unit_qty(match.group(3), match.group(4))
+    if parsed is None:
+        return None
+
+    if label in _MULTIPACK_MULTIPLIER_LABELS:
+        outer_count = float(match.group(1))
+        if outer_count <= 0:
+            return None
+        total_multiplier = outer_count * pack_count
+    else:
+        total_multiplier = pack_count
+
     return ParsedSize(
-        quantity=parsed_size.quantity * pack_count,
-        unit=parsed_size.unit,
-        family=parsed_size.family,
-        base_quantity=parsed_size.base_quantity * pack_count,
-        base_unit=parsed_size.base_unit,
+        quantity=parsed.quantity * total_multiplier,
+        unit=parsed.unit,
+        family=parsed.family,
+        base_quantity=parsed.base_quantity * total_multiplier,
+        base_unit=parsed.base_unit,
     )
 
 
