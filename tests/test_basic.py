@@ -1283,6 +1283,35 @@ def test_recommendations_module_scores_without_client_instance():
     assert score.unwanted_ingredients == ["Sodium benzoate"]
 
 
+@pytest.mark.parametrize(
+    ("stock_level", "expected"),
+    [
+        ("HIGH", False),
+        ("LOW", False),
+        ("TEMPORARILY_OUT_OF_STOCK", True),
+        (None, False),
+    ],
+)
+def test_recommendations_detects_explicit_out_of_stock_for_displayed_item(
+    stock_level, expected
+):
+    inventory = {"stockLevel": stock_level} if stock_level else None
+    detail = parsers.product_detail_from_response(
+        {
+            "upc": "0001111040101",
+            "productId": "0001111040101",
+            "description": "Milk",
+            "items": [{"inventory": inventory}],
+        }
+    )
+
+    assert recommendations.is_temporarily_out_of_stock(detail) is expected
+
+
+def test_recommendations_treats_missing_detail_as_not_explicitly_out_of_stock():
+    assert recommendations.is_temporarily_out_of_stock(None) is False
+
+
 
 def test_preference_scoring_prefers_simple_truth_over_equivalent_product():
     client = KrogerClient.__new__(KrogerClient)
@@ -1693,6 +1722,14 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
             size="1 lb",
         ),
     ]
+    out_of_stock_detail = parsers.product_detail_from_response(
+        {
+            "upc": products[1].upc,
+            "productId": products[1].product_id,
+            "description": products[1].description,
+            "items": [{"inventory": {"stockLevel": "TEMPORARILY_OUT_OF_STOCK"}}],
+        }
+    )
 
     class Client:
         def ranked_search_products(self, term, limit=10):
@@ -1700,7 +1737,7 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
             return [
                 RankedProduct(
                     product=product,
-                    detail=None,
+                    detail=out_of_stock_detail if index == 2 else None,
                     preference_score=ProductPreferenceScore(
                         total=92.5,
                         unwanted_ingredient_count=0,
@@ -1719,7 +1756,7 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
         "$4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0 | purchased: yes\n"
         "\n"
         "Simple Truth Cheddar Block\n"
-        "$5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0\n"
+        "$5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0 | out of stock\n"
     )
 
 
@@ -1763,6 +1800,14 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
             size="1 lb",
         ),
     ]
+    out_of_stock_detail = parsers.product_detail_from_response(
+        {
+            "upc": products[1].upc,
+            "productId": products[1].product_id,
+            "description": products[1].description,
+            "items": [{"inventory": {"stockLevel": "TEMPORARILY_OUT_OF_STOCK"}}],
+        }
+    )
 
     class Client:
         def ranked_search_products(self, term, limit=10):
@@ -1770,7 +1815,7 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
             return [
                 RankedProduct(
                     product=product,
-                    detail=None,
+                    detail=out_of_stock_detail if index == 2 else None,
                     preference_score=ProductPreferenceScore(
                         total=92.5,
                         unwanted_ingredient_count=0,
@@ -1793,7 +1838,8 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
         "\n"
         "**Simple Truth Cheddar Block**\n"
         "$5.99 | `0001111050435` "
-        "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0"
+        "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | out of stock "
+        "| Simple Truth unwanted ingredients: 0"
     )
     assert "score" not in output.lower()
 

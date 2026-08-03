@@ -63,6 +63,8 @@ Successful cart output is intentionally compact and omits token paths, OAuth int
 
 `/kroger recommend` returns product summaries with an `unwanted` count. The count is based on a committed snapshot of Kroger Simple Truth food ingredient exclusions. Products with fewer detected unwanted ingredients rank higher; products with missing ingredient data show `unwanted: unknown`.
 
+Recommendation output also shows `out of stock` when Kroger explicitly reports the displayed item as `TEMPORARILY_OUT_OF_STOCK` for the configured location. High, low, and unavailable inventory data remain unmarked and do not affect recommendation ranking.
+
 ## Python Usage
 
 ```python

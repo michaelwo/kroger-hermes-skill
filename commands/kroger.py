@@ -1,6 +1,7 @@
 from hermes.commands import command
 from kroger_shopping import KrogerClient, KrogerValidationError
 from kroger_shopping.exceptions import KrogerError
+from kroger_shopping.recommendations import is_temporarily_out_of_stock
 from kroger_shopping.unit_pricing import format_unit_price_for_products
 
 _client = None
@@ -78,11 +79,17 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                     matches = f"{matches}; +{len(score.unwanted_ingredients) - 3} more"
                 match_text = f" | matches: {matches}" if matches else ""
                 purchased = " | purchased: yes" if r.previously_purchased else ""
+                out_of_stock = (
+                    " | out of stock"
+                    if is_temporarily_out_of_stock(r.detail)
+                    else ""
+                )
                 reasons = "; ".join(score.reasons[:3]) or "No preference signals available"
                 warnings = f" Warning: {'; '.join(score.warnings[:1])}" if score.warnings else ""
                 metadata = (
                     f"{price} | `{product.upc}` "
-                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}{purchased}{match_text} | {reasons}{warnings}"
+                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}"
+                    f"{purchased}{out_of_stock}{match_text} | {reasons}{warnings}"
                 )
                 lines.append(f"**{product.description}**\n{metadata}")
             return "\n\n".join(lines)

@@ -2,7 +2,7 @@ import argparse
 import sys
 from typing import Callable, Optional, Sequence
 
-from . import validation
+from . import recommendations, validation
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .models import CartModality
@@ -95,10 +95,16 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             else "unknown"
         )
         purchased = " | purchased: yes" if item.previously_purchased else ""
+        out_of_stock = (
+            " | out of stock"
+            if recommendations.is_temporarily_out_of_stock(item.detail)
+            else ""
+        )
         metadata = (
             f"{_format_price(product.price)} | {product.upc} "
             f"| size: {_format_optional_text(product.size)} "
-            f"| unit: {format_unit_price_for_products(product, products)} | unwanted: {unwanted}{purchased}"
+            f"| unit: {format_unit_price_for_products(product, products)} "
+            f"| unwanted: {unwanted}{purchased}{out_of_stock}"
         )
         blocks.append(f"{product.description}\n{metadata}")
     print("\n\n".join(blocks))

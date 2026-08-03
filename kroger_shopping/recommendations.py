@@ -27,6 +27,14 @@ def ranked_product_sort_key(item: RankedProduct) -> tuple:
     )
 
 
+def is_temporarily_out_of_stock(detail: Optional[ProductDetail]) -> bool:
+    """Return whether Kroger explicitly marks the displayed item out of stock."""
+    if not detail or not detail.items:
+        return False
+    inventory = detail.items[0].inventory
+    return bool(inventory and inventory.stock_level == "TEMPORARILY_OUT_OF_STOCK")
+
+
 def score_product_preference(
     product: Product,
     detail: Optional[ProductDetail],
