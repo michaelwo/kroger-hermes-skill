@@ -14,7 +14,7 @@ This is an independent, unofficial integration and is not affiliated with, endor
 ## Capabilities
 
 - `/kroger search <term>` for compact product search
-- `/kroger recommend <term>` for Simple Truth unwanted-ingredient ranking
+- `/kroger recommend <term>` for receipt-aware, Simple Truth unwanted-ingredient ranking
 - `/kroger add <UPC> [quantity]` for cart add/increase
 - `/kroger login`, `/kroger code`, `/kroger status`, and `/kroger logout` for user OAuth setup
 - `python -m kroger_shopping search <term>` for low-noise terminal search
@@ -37,7 +37,7 @@ Keep successful cart responses short: item or UPC, quantity, and modality are en
 - Product search uses `GET /v1/products`; product detail uses `GET /v1/products/{id}`.
 - Preserve `raw` payloads on major models so callers can inspect Kroger fields that are not yet typed.
 - Keep request fulfillment filters (`ais`, `csp`, `dth`, `sth`) separate from item fulfillment response booleans (`curbside`, `delivery`, `instore`, `shiptohome`).
-- Recommended search ranks by Simple Truth unwanted ingredient count first, existing score second, Kroger order third.
+- Recommended search promotes exact UPCs found in `kroger_shopping/receipts/*.pdf`, then preserves the existing ranking within purchased and unpurchased groups.
 - Cart writes require user OAuth with `cart.basic:write` and send the documented `items` wrapper payload.
 
 ## Development

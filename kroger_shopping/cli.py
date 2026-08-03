@@ -94,10 +94,11 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             if score.unwanted_ingredient_count is not None
             else "unknown"
         )
+        purchased = " | purchased: yes" if item.previously_purchased else ""
         metadata = (
             f"{_format_price(product.price)} | {product.upc} "
             f"| size: {_format_optional_text(product.size)} "
-            f"| unit: {format_unit_price_for_products(product, products)} | unwanted: {unwanted}"
+            f"| unit: {format_unit_price_for_products(product, products)} | unwanted: {unwanted}{purchased}"
         )
         blocks.append(f"{product.description}\n{metadata}")
     print("\n\n".join(blocks))

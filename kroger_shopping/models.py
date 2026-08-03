@@ -297,6 +297,7 @@ class RankedProduct:
     detail: Optional[ProductDetail]
     preference_score: ProductPreferenceScore
     original_kroger_rank: int
+    previously_purchased: bool = False
 
 
 @dataclass

@@ -2,7 +2,7 @@ import requests
 from typing import Any, List, Optional, Sequence, Union
 from urllib.parse import quote
 
-from . import parsers, recommendations, validation
+from . import parsers, receipts, recommendations, validation
 from .auth import KrogerAuthClient
 from .config import KrogerConfig
 from .exceptions import KrogerAuthError, KrogerError, KrogerServerError, KrogerValidationError
@@ -174,6 +174,7 @@ class KrogerClient:
             location_id = self._validate_location_id(location_id)
 
         profile = preferences or PreferenceProfile()
+        purchase_upcs = receipts.load_purchase_upcs()
         candidates = self.search_products(
             term,
             limit=candidate_limit,
@@ -204,6 +205,7 @@ class KrogerClient:
                     detail=detail,
                     preference_score=score,
                     original_kroger_rank=index,
+                    previously_purchased=product.upc in purchase_upcs,
                 )
             )
 

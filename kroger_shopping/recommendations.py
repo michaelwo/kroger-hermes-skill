@@ -17,6 +17,7 @@ def ranked_product_sort_key(item: RankedProduct) -> tuple:
     unwanted_count = item.preference_score.unwanted_ingredient_count
     unit_price = unit_pricing.unit_price_for_product(item.product)
     return (
+        not item.previously_purchased,
         unwanted_count is None,
         unwanted_count if unwanted_count is not None else 10**9,
         unit_price is None,

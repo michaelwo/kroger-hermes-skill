@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from kroger_shopping import KrogerAuthError, KrogerValidationError
-from kroger_shopping import parsers, recommendations, unit_pricing, validation
+from kroger_shopping import parsers, receipts, recommendations, unit_pricing, validation
 from kroger_shopping.auth import KrogerAuthClient
 from kroger_shopping.client import KrogerClient
 from kroger_shopping.config import KrogerConfig
@@ -20,6 +20,13 @@ from kroger_shopping.models import (
     ProductNutritionInformation,
     TokenSet,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolate_local_purchase_history(monkeypatch):
+    real_loader = receipts.load_purchase_upcs
+    monkeypatch.setattr(receipts, "load_purchase_upcs", lambda: frozenset())
+    return real_loader
 
 
 def make_config(tmp_path):
@@ -1699,6 +1706,7 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
                         unwanted_ingredient_count=0,
                     ),
                     original_kroger_rank=index,
+                    previously_purchased=index == 1,
                 )
                 for index, product in enumerate(products, start=1)
             ]
@@ -1708,7 +1716,7 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
     assert exit_code == 0
     assert capsys.readouterr().out == (
         "Kroger Cheddar Block\n"
-        "$4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0\n"
+        "$4.00 | 0001111050434 | size: 8 oz | unit: $0.50/oz | unwanted: 0 | purchased: yes\n"
         "\n"
         "Simple Truth Cheddar Block\n"
         "$5.99 | 0001111050435 | size: 1 lb | unit: $0.37/oz | unwanted: 0\n"
@@ -1769,6 +1777,7 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
                         reasons=["Simple Truth unwanted ingredients: 0"],
                     ),
                     original_kroger_rank=index,
+                    previously_purchased=index == 1,
                 )
                 for index, product in enumerate(products, start=1)
             ]
@@ -1780,7 +1789,7 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     assert output == (
         "**Kroger Cheddar Block**\n"
         "$4.0 | `0001111050434` "
-        "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | Simple Truth unwanted ingredients: 0\n"
+        "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | purchased: yes | Simple Truth unwanted ingredients: 0\n"
         "\n"
         "**Simple Truth Cheddar Block**\n"
         "$5.99 | `0001111050435` "
@@ -1812,3 +1821,78 @@ def test_cli_status_reports_auth_state(capsys):
     assert capsys.readouterr().out == (
         "Kroger user authentication is missing or expired. Run /kroger login.\n"
     )
+
+
+
+def test_receipt_upc_extraction_is_exact_and_deduplicated():
+    text = """Order: 1234567890123
+UPC: 0001111050434
+UPC: 0001111050434
+  UPC: 0001111050435
+UPC: 12345
+"""
+
+    assert receipts.extract_upcs_from_text(text) == {
+        "0001111050434",
+        "0001111050435",
+    }
+
+
+def test_receipt_loader_combines_valid_pdfs_and_skips_bad_ones(
+    tmp_path,
+    monkeypatch,
+    isolate_local_purchase_history,
+):
+    assert isolate_local_purchase_history(tmp_path / "missing") == frozenset()
+    assert isolate_local_purchase_history(tmp_path) == frozenset()
+
+    class Page:
+        def __init__(self, text):
+            self.text = text
+
+        def extract_text(self):
+            return self.text
+
+    class Reader:
+        def __init__(self, path):
+            if path.name == "bad.pdf":
+                raise ValueError("invalid PDF")
+            self.pages = [Page("UPC: 0001111050434\nUPC: 0001111050435")]
+
+    (tmp_path / "valid.pdf").write_bytes(b"pdf")
+    (tmp_path / "bad.pdf").write_bytes(b"bad")
+    monkeypatch.setattr(receipts, "PdfReader", Reader)
+    receipts._load_purchase_upcs_cached.cache_clear()
+
+    with pytest.warns(RuntimeWarning, match="bad.pdf"):
+        purchased = isolate_local_purchase_history(tmp_path)
+
+    assert purchased == frozenset({"0001111050434", "0001111050435"})
+
+
+def test_ranked_search_promotes_a_previously_purchased_upc(monkeypatch):
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                make_product("0001111040101", description="Current Best"),
+                make_product("0001111040102", description="Purchased"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            product = make_product(product_id)
+            ingredients = "Milk" if product_id.endswith("101") else "Water, sodium benzoate"
+            return make_detail(product, ingredients=ingredients)
+
+    monkeypatch.setattr(
+        receipts,
+        "load_purchase_upcs",
+        lambda: frozenset({"0001111040102"}),
+    )
+
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert [item.product.description for item in results] == ["Purchased", "Current Best"]
+    assert [item.previously_purchased for item in results] == [True, False]

@@ -10,11 +10,15 @@ This project is an independent, unofficial client and is not affiliated with, en
 
 - Product search with location, brand, limit, and fulfillment filters
 - Product detail lookup through `GET /v1/products/{id}` with typed price, availability, inventory, nutrition, allergen, and raw payload access
-- Recommended search that ranks by Simple Truth unwanted ingredient count first, then local preference score, then Kroger result order
+- Recommended search that promotes UPCs found in local receipt PDFs, then applies the existing ingredient, unit-price, preference-score, and Kroger-order ranking
 - Cart add/increase support through `PUT /v1/cart/add`
 - OAuth2 authorization-code flow for cart writes, with token refresh and secure token file permissions
 - Slash commands under `/kroger`
 - Low-noise module CLI for agent and terminal usage
+
+## Installation
+
+Install runtime dependencies with `python -m pip install -r requirements.txt`. Receipt parsing uses `pypdf` and does not require OCR.
 
 ## Configuration
 
@@ -55,6 +59,8 @@ Successful cart output is intentionally compact and omits token paths, OAuth int
 /kroger logout
 ```
 
+`/kroger recommend` reads `kroger_shopping/receipts/*.pdf` and promotes exact 13-digit UPC matches. Matching results show `purchased: yes`; repeated purchases do not change their relative order. The receipt PDFs are local-only and ignored by Git.
+
 `/kroger recommend` returns product summaries with an `unwanted` count. The count is based on a committed snapshot of Kroger Simple Truth food ingredient exclusions. Products with fewer detected unwanted ingredients rank higher; products with missing ingredient data show `unwanted: unknown`.
 
 ## Python Usage
@@ -79,6 +85,7 @@ Recommended results include `preference_score.unwanted_ingredient_count`, `unwan
 - `kroger_shopping/validation.py` - input validators and API limit constants
 - `kroger_shopping/parsers.py` - Kroger response-to-model mapping
 - `kroger_shopping/recommendations.py` - ingredient extraction, Simple Truth matching, and ranking helpers
+- `kroger_shopping/receipts.py` - local PDF receipt parsing and purchased-UPC caching
 - `kroger_shopping/auth.py` - OAuth2 token requests, refresh, storage, and authorization URL generation
 - `kroger_shopping/client.py` - public Kroger API facade, request handling, and auth retry behavior
 - `commands/kroger.py` - Hermes slash-command handlers

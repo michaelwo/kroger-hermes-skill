@@ -77,11 +77,12 @@ async def kroger_command(ctx, subcommand: str = None, *args):
                 if len(score.unwanted_ingredients) > 3:
                     matches = f"{matches}; +{len(score.unwanted_ingredients) - 3} more"
                 match_text = f" | matches: {matches}" if matches else ""
+                purchased = " | purchased: yes" if r.previously_purchased else ""
                 reasons = "; ".join(score.reasons[:3]) or "No preference signals available"
                 warnings = f" Warning: {'; '.join(score.warnings[:1])}" if score.warnings else ""
                 metadata = (
                     f"{price} | `{product.upc}` "
-                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}{match_text} | {reasons}{warnings}"
+                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}{purchased}{match_text} | {reasons}{warnings}"
                 )
                 lines.append(f"**{product.description}**\n{metadata}")
             return "\n\n".join(lines)
