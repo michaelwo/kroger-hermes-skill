@@ -1,8 +1,14 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# Install Node.js 22 (LTS) + npm
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/openai/codex-universal.git /opt/codex-universal
+# Install Codex CLI
+RUN npm install -g @openai/codex \
+    || (curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh)
 
 WORKDIR /workspace
 
