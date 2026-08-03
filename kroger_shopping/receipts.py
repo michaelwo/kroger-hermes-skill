@@ -7,7 +7,7 @@ from typing import Iterable
 from pypdf import PdfReader
 
 
-DEFAULT_RECEIPTS_DIR = Path(__file__).resolve().parent / "receipts"
+DEFAULT_RECEIPTS_DIR = Path(__file__).resolve().parents[1] / "receipts"
 UPC_LINE_PATTERN = re.compile(r"(?im)^\s*UPC:\s*(\d{13})\s*$")
 
 
