@@ -98,16 +98,10 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                     if is_temporarily_out_of_stock(result.detail)
                     else ""
                 )
-                reasons = "; ".join(score.reasons[:3]) or "No preference signals available"
-                warnings = (
-                    f" Warning: {'; '.join(score.warnings[:1])}"
-                    if score.warnings
-                    else ""
-                )
                 metadata = (
                     f"{price} | `{product.upc}` "
                     f"| size: {size} | unit: {unit} | unwanted: {unwanted}"
-                    f"{purchased}{out_of_stock}{match_text} | {reasons}{warnings}"
+                    f"{purchased}{out_of_stock}{match_text}"
                 )
                 lines.append(f"**{product.description}**\n{metadata}")
             return "\n\n".join(lines)

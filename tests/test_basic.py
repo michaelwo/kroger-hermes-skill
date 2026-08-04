@@ -1819,7 +1819,11 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
                     preference_score=ProductPreferenceScore(
                         total=92.5,
                         unwanted_ingredient_count=0,
-                        reasons=["Simple Truth unwanted ingredients: 0"],
+                        reasons=[
+                            "Kroger result order signal +6.25",
+                            "Simple Truth unwanted ingredients: 0",
+                            "Nutrition data available +3.00",
+                        ],
                     ),
                     original_kroger_rank=index,
                     previously_purchased=index == 1,
@@ -1834,14 +1838,16 @@ def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):
     assert output == (
         "**Kroger Cheddar Block**\n"
         "$4.0 | `0001111050434` "
-        "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | purchased: yes | Simple Truth unwanted ingredients: 0\n"
+        "| size: 8 oz | unit: $0.50/oz | unwanted: 0 | purchased: yes\n"
         "\n"
         "**Simple Truth Cheddar Block**\n"
         "$5.99 | `0001111050435` "
-        "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | out of stock "
-        "| Simple Truth unwanted ingredients: 0"
+        "| size: 1 lb | unit: $0.37/oz | unwanted: 0 | out of stock"
     )
     assert "score" not in output.lower()
+    assert "Simple Truth unwanted ingredients" not in output
+    assert "Nutrition data available" not in output
+    assert "Kroger result order signal" not in output
 
 
 def test_cli_status_reports_auth_state(capsys):
