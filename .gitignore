@@ -13,7 +13,6 @@
 kroger_shopping/receipts/*.pdf
 
 # Python bytecode and caches
-__init__.py
 __pycache__/
 *.py[cod]
 *$py.class
