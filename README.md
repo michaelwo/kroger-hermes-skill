@@ -14,6 +14,7 @@ This project is an independent, unofficial client and is not affiliated with, en
 - Cart add/increase support through `PUT /v1/cart/add`
 - OAuth2 authorization-code flow for cart writes, with token refresh and secure token file permissions
 - Slash commands under `/kroger`
+- Optional conversational shopping assistant backed by structured, read-only plugin tools
 - Low-noise module CLI for agent and terminal usage
 
 ## Installation
@@ -22,7 +23,7 @@ Install runtime dependencies with `python -m pip install -r requirements.txt`. R
 
 ### Hermes Plugin
 
-Current Hermes releases should load this repository as a plugin. The plugin registers `/kroger` directly in CLI and messaging gateways, so Kroger operations do not create an agent turn or invoke a shell command. `SKILL.md` remains available for natural-language guidance and the separate `/kroger-shopping` skill command.
+Current Hermes releases should load this repository as a plugin. The plugin registers `/kroger` directly in CLI and messaging gateways, so those commands do not create an agent turn or invoke a shell command. It also registers the namespaced `kroger-shopping:shopping-assistant` skill and the read-only `kroger_search`, `kroger_recommend`, and `kroger_auth_status` tools for optional LLM-guided product discovery.
 
 Install and enable the repository plugin, then restart the gateway:
 
@@ -32,6 +33,8 @@ hermes gateway restart
 ```
 
 For a local checkout, place or symlink this repository at `~/.hermes/plugins/kroger-shopping`, run `hermes plugins enable kroger-shopping`, and restart Hermes. Verify registration with `/plugins` and `/commands`, then run `/kroger status`.
+
+Plugin skills are explicit and namespaced in Hermes. To use the conversational path, ask Hermes to load `kroger-shopping:shopping-assistant`, for example: “Load `kroger-shopping:shopping-assistant` and help me compare lactose-free milk.” The skill uses the structured read-only tools and hands cart changes back to the deterministic `/kroger add <UPC> [quantity]` command. It does not register another Telegram slash command.
 
 If Telegram command tiers are enabled, add `kroger` to `user_allowed_commands` and/or `group_user_allowed_commands` for non-admin users. Admins and unrestricted users receive plugin commands automatically.
 
@@ -107,6 +110,8 @@ Recommended results include `preference_score.unwanted_ingredient_count`, `unwan
 - `kroger_shopping/client.py` - public Kroger API facade, request handling, and auth retry behavior
 - `plugin.yaml` and root `__init__.py` - current Hermes plugin registration
 - `kroger_shopping/hermes_command.py` - shared direct slash-command handler
+- `kroger_shopping/hermes_tools.py` - structured, read-only tools for LLM-guided discovery
+- `skills/shopping-assistant/SKILL.md` - plugin-bundled conversational workflow
 - `commands/kroger.py` - compatibility adapter for legacy Hermes versions
 - `tests/test_basic.py` - unit and contract tests
 - `tests/test_hermes_plugin.py` - plugin registration and direct-dispatch tests

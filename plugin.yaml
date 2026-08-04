@@ -1,7 +1,11 @@
 name: kroger-shopping
-version: "2.1.0"
-description: Direct Kroger shopping slash commands for Hermes CLI and messaging gateways
+version: "2.2.0"
+description: Direct Kroger commands plus conversational read-only shopping tools for Hermes
 kind: standalone
+provides_tools:
+  - kroger_search
+  - kroger_recommend
+  - kroger_auth_status
 requires_env:
   - name: KROGER_CLIENT_ID
     description: Kroger Developer API client ID

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kroger Shopping Assistant"
+  short_description: "Conversational Kroger product discovery"
+  default_prompt: "Use $shopping-assistant to find and compare Kroger products for me."
