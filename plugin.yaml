@@ -1,0 +1,11 @@
+name: kroger-shopping
+version: "2.1.0"
+description: Direct Kroger shopping slash commands for Hermes CLI and messaging gateways
+kind: standalone
+requires_env:
+  - name: KROGER_CLIENT_ID
+    description: Kroger Developer API client ID
+    password: true
+  - name: KROGER_CLIENT_SECRET
+    description: Kroger Developer API client secret
+    password: true

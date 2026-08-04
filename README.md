@@ -1,6 +1,6 @@
 # Kroger Shopping Skill
 
-API-first Kroger shopping client and Hermes slash-command skill. It supports product search, product detail parsing, local recommendation ranking, OAuth token management, and adding items to a Kroger cart.
+API-first Kroger shopping client with a Hermes slash-command plugin and companion skill. It supports product search, product detail parsing, local recommendation ranking, OAuth token management, and adding items to a Kroger cart.
 
 ## Disclaimer
 
@@ -19,6 +19,21 @@ This project is an independent, unofficial client and is not affiliated with, en
 ## Installation
 
 Install runtime dependencies with `python -m pip install -r requirements.txt`. Receipt parsing uses `pypdf` and does not require OCR.
+
+### Hermes Plugin
+
+Current Hermes releases should load this repository as a plugin. The plugin registers `/kroger` directly in CLI and messaging gateways, so Kroger operations do not create an agent turn or invoke a shell command. `SKILL.md` remains available for natural-language guidance and the separate `/kroger-shopping` skill command.
+
+Install and enable the repository plugin, then restart the gateway:
+
+```bash
+hermes plugins install <owner>/<repository> --enable
+hermes gateway restart
+```
+
+For a local checkout, place or symlink this repository at `~/.hermes/plugins/kroger-shopping`, run `hermes plugins enable kroger-shopping`, and restart Hermes. Verify registration with `/plugins` and `/commands`, then run `/kroger status`.
+
+If Telegram command tiers are enabled, add `kroger` to `user_allowed_commands` and/or `group_user_allowed_commands` for non-admin users. Admins and unrestricted users receive plugin commands automatically.
 
 ## Configuration
 
@@ -90,8 +105,11 @@ Recommended results include `preference_score.unwanted_ingredient_count`, `unwan
 - `kroger_shopping/receipts.py` - local PDF receipt parsing and purchased-UPC caching
 - `kroger_shopping/auth.py` - OAuth2 token requests, refresh, storage, and authorization URL generation
 - `kroger_shopping/client.py` - public Kroger API facade, request handling, and auth retry behavior
-- `commands/kroger.py` - Hermes slash-command handlers
+- `plugin.yaml` and root `__init__.py` - current Hermes plugin registration
+- `kroger_shopping/hermes_command.py` - shared direct slash-command handler
+- `commands/kroger.py` - compatibility adapter for legacy Hermes versions
 - `tests/test_basic.py` - unit and contract tests
+- `tests/test_hermes_plugin.py` - plugin registration and direct-dispatch tests
 - `references/openapi/*.openapi.json` - committed Kroger OpenAPI source documents
 
 ## Development
