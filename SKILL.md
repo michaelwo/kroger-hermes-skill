@@ -1,47 +1,87 @@
 ---
 name: kroger-shopping
-description: API-first Kroger shopping agent. Uses the official Kroger Developer APIs for product search, recommendations, product detail, OAuth, and cart add operations.
+description: API-first Kroger shopping integration for deterministic Hermes commands, conversational read-only product discovery, OAuth, and cart adds.
 version: 2.2.0
 category: shopping
 ---
 
-# Kroger Shopping Agent
+# Kroger Shopping Integration
 
-Layered Kroger Developer API implementation for product discovery and cart adds.
+Layered Kroger Developer API implementation for product discovery and cart
+adds.
 
-This is an independent, unofficial integration and is not affiliated with, endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
+This is an independent, unofficial integration and is not affiliated with,
+endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
 
-## Capabilities
+## Current Interfaces
 
-- `/kroger search <term>` for compact product search
-- `/kroger recommend <term>` for receipt-aware, Simple Truth unwanted-ingredient ranking
-- `/kroger add <UPC> [quantity]` for cart add/increase
-- `/kroger login`, `/kroger code`, `/kroger status`, and `/kroger logout` for user OAuth setup
-- `python -m kroger_shopping search <term>` for low-noise terminal search
-- `python -m kroger_shopping recommend <term>` for low-noise terminal recommendations
-- `python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]` for low-noise cart adds
-- `python -m kroger_shopping status` for low-noise auth checks
-- Python client access through `KrogerClient`
-- Plugin-bundled `kroger-shopping:shopping-assistant` skill for conversational product discovery
+- `/kroger search <term>` — compact direct search
+- `/kroger recommend <term>` — compact receipt-aware recommendations
+- `/kroger add <UPC> [quantity]` — deterministic cart add/increase
+- `/kroger login`, `/kroger code`, `/kroger status`, `/kroger logout` — user
+  OAuth
+- `kroger-shopping:shopping-assistant` — explicitly loaded conversational skill
+- `kroger_search`, `kroger_recommend`, `kroger_auth_status` — read-only agent
+  tools
+- `python -m kroger_shopping ...` — deterministic module CLI
+- `KrogerClient` — Python API
+
+There is no `/kroger-shopping` slash command and no LLM-accessible cart-write
+tool. A shorter `/shop` Telegram alias is only a deferred proposal in
+`docs/plans/telegram-shopping-skill-alias.md`.
 
 ## Normal Hermes Usage
 
-For routine shopping actions in Hermes messaging or chat, prefer the plugin-registered `/kroger` command; it dispatches directly without an agent shell command. For an LLM-guided comparison, explicitly load the plugin-bundled `kroger-shopping:shopping-assistant` skill, which uses read-only Kroger tools and leaves cart writes to `/kroger add`. In a terminal or when the plugin is unavailable, use one direct `python -m kroger_shopping` CLI call after the user intent is clear. Use search or recommend first only when the user provides a product description instead of a UPC, then use the selected UPC for the cart add. Inspect source and tests only when debugging or changing the integration.
+Prefer `/kroger` for routine messaging and TUI actions. It dispatches directly,
+without an LLM, shell command, or Hermes tool.
 
-When showing `python -m kroger_shopping recommend` results, preserve the CLI stdout line breaks and item formatting exactly. Do not convert recommendations into bullets, tables, prose summaries, or compact single-line items, because the CLI already formats product names, prices, sizes, unit prices, UPCs, and unwanted counts for scanning. It is fine to add one short lead-in sentence before the copied output and one short follow-up question after it.
+For LLM-guided comparison, explicitly load
+`kroger-shopping:shopping-assistant`. Plugin-provided skills are namespaced and
+do not appear in the normal skill index. The bundled skill uses structured
+read-only tools and leaves cart writes to `/kroger add`.
 
-Keep successful cart responses short: item or UPC, quantity, and modality are enough. Do not include token file paths, OAuth scope details, HTTP status internals, or implementation method names unless the operation fails and that detail helps the user fix it.
+When the plugin is unavailable, use one direct `python -m kroger_shopping`
+operation after the user intent is clear. Search or recommend first when the
+user provides a product description rather than a UPC.
+
+Preserve module CLI recommendation blocks as emitted. Keep successful cart
+responses concise. Do not expose token paths, OAuth internals, HTTP details,
+score totals, internal score reasons, or warnings unless failure diagnostics
+require them.
+
+## Recommendation Rules
+
+Rank in this order:
+
+1. Previously purchased UPCs
+2. Known/fewer unwanted ingredient matches
+3. Known/lower unit price
+4. Higher preference score
+5. Original Kroger result order
+
+Missing ingredient data is unknown, not zero. Ingredient matching is
+explainable preference-rule matching, not medical advice or toxicity scoring.
+Only explicit `TEMPORARILY_OUT_OF_STOCK` inventory is labeled out of stock.
+
+Receipt history is loaded from repository-level `receipts/*.pdf`.
 
 ## Implementation Notes
 
-- Keep the current layers: models, validation, parsers, recommendations, config, auth, client facade, command handlers, tests.
-- Current Hermes registers `/kroger`, three read-only Kroger tools, and the namespaced `kroger-shopping:shopping-assistant` skill through the root plugin entrypoint; `commands/kroger.py` is legacy compatibility only.
-- Product search uses `GET /v1/products`; product detail uses `GET /v1/products/{id}`.
-- Preserve `raw` payloads on major models so callers can inspect Kroger fields that are not yet typed.
-- Keep request fulfillment filters (`ais`, `csp`, `dth`, `sth`) separate from item fulfillment response booleans (`curbside`, `delivery`, `instore`, `shiptohome`).
-- Recommended search promotes exact UPCs found in `kroger_shopping/receipts/*.pdf`, then preserves the existing ranking within purchased and unpurchased groups.
-- Cart writes require user OAuth with `cart.basic:write` and send the documented `items` wrapper payload.
+- Preserve the current layers: models, validation, parsers, recommendations,
+  unit pricing, receipts, config, auth, client, Hermes presentation, and tests.
+- Root `plugin.yaml` and `__init__.py` register `/kroger`, three read-only tools,
+  and `kroger-shopping:shopping-assistant`.
+- `kroger_shopping/hermes_command.py` is the current direct command handler;
+  `commands/kroger.py` is legacy compatibility only.
+- Product search uses `GET /v1/products`; product detail uses
+  `GET /v1/products/{id}`.
+- Preserve raw payloads on major models.
+- Keep request fulfillment filters (`ais`, `csp`, `dth`, `sth`) separate from
+  response booleans (`curbside`, `delivery`, `instore`, `shiptohome`).
+- Cart writes require user OAuth with `cart.basic:write` and the documented
+  `items` wrapper.
 
 ## Development
 
-Use `python -m pytest` for the local unit suite. Do not run live Kroger smoke tests unless explicitly requested or needed for manual verification.
+Run `python -m pytest`. Tests must remain offline by default. Run live Kroger
+smoke tests only when explicitly requested or necessary for manual verification.

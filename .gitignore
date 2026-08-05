@@ -11,6 +11,7 @@
 
 # Local Kroger receipt PDFs
 kroger_shopping/receipts/*.pdf
+receipts/*.pdf
 
 # Python bytecode and caches
 __pycache__/
