@@ -41,21 +41,14 @@ expose a cart-write tool to the LLM.
 
 ### Python dependencies
 
-Install the runtime dependencies into the same Python environment that runs
-Hermes:
+The runtime dependencies are listed in `requirements.txt`. Install that file
+into the same Python environment that runs Hermes. When Hermes uses a dedicated
+virtual environment, make sure your dependency installer targets that
+environment rather than the system Python environment.
 
-```bash
-python -m pip install -r requirements.txt
-```
-
-When Hermes uses a dedicated virtual environment, target it explicitly. For
-example:
-
-```bash
-uv pip install \
-  --python /opt/hermes/.venv/bin/python \
-  -r /opt/data/plugins/kroger-shopping/requirements.txt
-```
+For the standard `/opt/hermes` deployment, the interpreter to target is
+`/opt/hermes/.venv/bin/python`. After cloning, the dependency manifest is under
+the installed plugin directory as `requirements.txt`.
 
 Receipt parsing requires `pypdf`; OCR is not used.
 

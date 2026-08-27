@@ -1,4 +1,4 @@
-# AGENTS.md
+# Contributor notes for coding agents
 
 Guidance for coding agents working in this repository.
 
