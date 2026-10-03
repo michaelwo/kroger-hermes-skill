@@ -1,6 +1,11 @@
 import importlib.util
 import json
 import sys
+import asyncio
+from types import ModuleType
+from unittest.mock import Mock
+
+import pytest
 from pathlib import Path
 
 from kroger_shopping.hermes_command import handle_kroger
@@ -48,6 +53,8 @@ def test_plugin_registers_command_read_only_tools_and_skill():
     assert handler.__name__ == "handle_kroger"
     assert metadata["description"] == "Search, recommend, and add Kroger products"
     assert metadata["args_hint"].startswith("<search|recommend|add|")
+    for shortcut in ("-s", "-r", "-a", "-h"):
+        assert shortcut in metadata["args_hint"]
 
     assert {tool["name"] for tool in tools} == {
         "kroger_search",
@@ -170,3 +177,108 @@ def test_direct_kroger_handler_returns_usage_without_constructing_client(monkeyp
     assert handle_kroger("").startswith("Kroger commands:")
     assert handle_kroger("search") == "Usage: /kroger search <term>"
     assert handle_kroger('search "unterminated') == "Validation error: No closing quotation"
+
+
+@pytest.fixture(params=["raw", "direct", "legacy"])
+def dispatch_kroger(request, monkeypatch):
+    from kroger_shopping import hermes_command
+    import shlex
+
+    if request.param == "raw":
+        return hermes_command.handle_kroger
+    if request.param == "direct":
+        def dispatch(raw):
+            try:
+                tokens = shlex.split(raw)
+            except ValueError as exc:
+                return f"Validation error: {exc}"
+            return hermes_command.handle_kroger_args(tokens[0], tokens[1:])
+        return dispatch
+
+    hermes = ModuleType("hermes")
+    commands = ModuleType("hermes.commands")
+    commands.command = lambda name: lambda handler: handler
+    monkeypatch.setitem(sys.modules, "hermes", hermes)
+    monkeypatch.setitem(sys.modules, "hermes.commands", commands)
+    spec = importlib.util.spec_from_file_location(
+        "legacy_kroger_test", Path(__file__).resolve().parents[1] / "commands/kroger.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def dispatch(raw):
+        module.get_client = hermes_command.get_client
+        return asyncio.run(module.kroger_command(None, *shlex.split(raw)))
+    return dispatch
+
+
+@pytest.mark.parametrize("alias,canonical,arguments,method,expected_args", [
+    ("-s", "search", '"lactose free milk"', "search_products", ("lactose free milk",)),
+    ("-r", "recommend", "lactose free milk", "ranked_search_products", ("lactose free milk",)),
+    ("-a", "add", "0001111050434", "add_to_cart", ("0001111050434", 1)),
+    ("-a", "add", "0001111050434 2", "add_to_cart", ("0001111050434", 2)),
+])
+def test_shortcuts_match_full_commands(monkeypatch, dispatch_kroger, alias, canonical,
+                                       arguments, method, expected_args):
+    from kroger_shopping import hermes_command
+
+    product = Product(upc="0001111050434", product_id="0001111050434",
+                      description="Milk", brand="Simple Truth", price=4.99, size="8 oz")
+    client = Mock()
+    client.search_products.return_value = [product]
+    client.ranked_search_products.return_value = [RankedProduct(
+        product=product, detail=None,
+        preference_score=ProductPreferenceScore(total=42, reasons=[]),
+        original_kroger_rank=1,
+    )]
+    client.add_to_cart.return_value = True
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+    output = dispatch_kroger(f"{alias} {arguments}")
+    operation = getattr(client, method)
+    kwargs = {} if method == "add_to_cart" else {"limit": 10}
+    operation.assert_called_once_with(*expected_args, **kwargs)
+    operation.reset_mock()
+    assert output == dispatch_kroger(f"{canonical} {arguments}")
+    operation.assert_called_once_with(*expected_args, **kwargs)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("-s", "Usage: /kroger search <term>"),
+    ("-r", "Usage: /kroger recommend <term>"),
+    ("-a", "Usage: /kroger add <UPC> [quantity=1]"),
+])
+def test_shortcut_missing_arguments(monkeypatch, dispatch_kroger, raw, expected):
+    from kroger_shopping import hermes_command
+    monkeypatch.setattr(hermes_command, "get_client", Mock(side_effect=AssertionError("client created")))
+    assert dispatch_kroger(raw) == expected
+
+
+@pytest.mark.parametrize("quantity", ["no", "1.5", "0", "-1"])
+def test_shortcut_invalid_quantities(monkeypatch, dispatch_kroger, quantity):
+    from kroger_shopping import hermes_command
+    from kroger_shopping.exceptions import KrogerValidationError
+    client = Mock()
+    client.add_to_cart.side_effect = KrogerValidationError("quantity must be positive")
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+    assert dispatch_kroger(f"-a 0001111050434 {quantity}") == dispatch_kroger(f"add 0001111050434 {quantity}")
+    if quantity in ("no", "1.5"):
+        client.add_to_cart.assert_not_called()
+    else:
+        assert client.add_to_cart.call_count == 2
+
+
+def test_shortcut_help_unknown_and_bad_quotes_remain_lazy(monkeypatch):
+    from kroger_shopping import hermes_command
+    monkeypatch.setattr(hermes_command, "get_client", Mock(side_effect=AssertionError("client created")))
+    assert handle_kroger("-h") == handle_kroger("") == hermes_command.help_text()
+    assert hermes_command.handle_kroger_args("-h", []) == hermes_command.help_text()
+    for raw in ("-x", "-sr", "help"):
+        assert handle_kroger(raw) == f"Unknown subcommand: {raw}\n{hermes_command.help_text()}"
+    for alias in ("-s", "-r", "-a", "-h"):
+        assert handle_kroger(f'{alias} "unterminated') == "Validation error: No closing quotation"
+
+
+def test_help_shortcut_through_all_adapters(monkeypatch, dispatch_kroger):
+    from kroger_shopping import hermes_command
+    monkeypatch.setattr(hermes_command, "get_client", Mock(side_effect=AssertionError("client created")))
+    assert dispatch_kroger("-h") == hermes_command.help_text()

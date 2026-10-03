@@ -144,6 +144,20 @@ inventory data. The token file contains user OAuth credentials, is written with
 ```
 
 These commands dispatch directly without an agent turn or shell command.
+Shopping shortcuts occupy the subcommand position and cannot be combined:
+
+```text
+/kroger -s lactose free milk
+/kroger -r "lactose free milk"
+/kroger -a 0001111050434 2
+/kroger -h
+```
+
+`-s`, `-r`, and `-a` are aliases for `search`, `recommend`, and `add`.
+Bare `/kroger` and `/kroger -h` show help. Authentication commands remain
+`login`, `code`, `status`, and `logout`; these shortcuts apply only to `/kroger`,
+not the standalone Python CLI or structured tools.
+
 `/kroger recommend` returns compact product blocks with price, UPC, size, unit
 price, unwanted count, purchase history, stock status, and up to three actual
 unwanted-ingredient matches. It intentionally omits internal score reasons,

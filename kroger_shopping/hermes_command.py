@@ -7,6 +7,8 @@ from .recommendations import is_temporarily_out_of_stock
 from .unit_pricing import format_unit_price_for_products
 
 
+_SHORTCUTS = {"-s": "search", "-r": "recommend", "-a": "add"}
+
 _client: Optional[KrogerClient] = None
 
 
@@ -20,13 +22,14 @@ def get_client() -> KrogerClient:
 def help_text() -> str:
     return (
         "Kroger commands:\n"
-        "- /kroger search <term>\n"
-        "- /kroger recommend <term>\n"
-        "- /kroger add <UPC> [qty]\n"
+        "- /kroger search <term> (shortcut: -s)\n"
+        "- /kroger recommend <term> (shortcut: -r)\n"
+        "- /kroger add <UPC> [qty] (shortcut: -a)\n"
         "- /kroger login\n"
         "- /kroger code <authorization-code>\n"
         "- /kroger status\n"
-        "- /kroger logout"
+        "- /kroger logout\n"
+        "- /kroger -h (help)"
     )
 
 
@@ -45,6 +48,9 @@ def handle_kroger(raw_args: str = "") -> str:
 
 def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
     subcommand = subcommand.lower()
+    if subcommand == "-h":
+        return help_text()
+    subcommand = _SHORTCUTS.get(subcommand, subcommand)
 
     if subcommand == "search":
         if not args:
