@@ -1,5 +1,5 @@
 name: kroger-shopping
-version: "2.2.0"
+version: "2.2.1"
 description: Direct Kroger commands plus conversational read-only shopping tools for Hermes
 kind: standalone
 python_dependencies:

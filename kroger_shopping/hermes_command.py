@@ -127,11 +127,20 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
             return "Validation error: quantity must be a whole number"
         try:
             success = client.add_to_cart(upc, quantity)
-            return "Added to cart" if success else "Failed to add"
+            if not success:
+                return "Failed to add"
         except KrogerValidationError as exc:
             return f"Validation error: {exc}"
         except KrogerError as exc:
             return f"Error: {exc}"
+        title = "Title unavailable"
+        try:
+            product = client.get_product_detail(upc.strip())
+            if product and product.description:
+                title = product.description
+        except KrogerError:
+            pass
+        return f"Added to cart: {title} | UPC: `{upc.strip()}` | Quantity: {quantity}"
 
     if subcommand == "login":
         client = get_client()

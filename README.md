@@ -144,6 +144,9 @@ inventory data. The token file contains user OAuth credentials, is written with
 ```
 
 These commands dispatch directly without an agent turn or shell command.
+Successful adds confirm the product title, UPC, and quantity (default: 1).
+If the catalog lookup fails or returns no title, the confirmation shows
+`Title unavailable` alongside the UPC and quantity.
 Shopping shortcuts occupy the subcommand position and cannot be combined:
 
 ```text

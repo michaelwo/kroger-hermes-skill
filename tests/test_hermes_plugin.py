@@ -232,6 +232,7 @@ def test_shortcuts_match_full_commands(monkeypatch, dispatch_kroger, alias, cano
         original_kroger_rank=1,
     )]
     client.add_to_cart.return_value = True
+    client.get_product_detail.return_value = product
     monkeypatch.setattr(hermes_command, "get_client", lambda: client)
     output = dispatch_kroger(f"{alias} {arguments}")
     operation = getattr(client, method)
@@ -282,3 +283,52 @@ def test_help_shortcut_through_all_adapters(monkeypatch, dispatch_kroger):
     from kroger_shopping import hermes_command
     monkeypatch.setattr(hermes_command, "get_client", Mock(side_effect=AssertionError("client created")))
     assert dispatch_kroger("-h") == hermes_command.help_text()
+
+
+@pytest.mark.parametrize("quantity", [1, 3])
+def test_add_confirms_product_title_upc_and_quantity(monkeypatch, dispatch_kroger, quantity):
+    from kroger_shopping import hermes_command
+
+    client = Mock()
+    client.add_to_cart.return_value = True
+    client.get_product_detail.return_value = Product(
+        upc="0001111050434", product_id="0001111050434",
+        description="Simple Truth Milk",
+    )
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+    args = "0001111050434" if quantity == 1 else f"0001111050434 {quantity}"
+
+    assert dispatch_kroger(f"add {args}") == (
+        f"Added to cart: Simple Truth Milk | UPC: `0001111050434` | Quantity: {quantity}"
+    )
+    client.add_to_cart.assert_called_once_with("0001111050434", quantity)
+    client.get_product_detail.assert_called_once_with("0001111050434")
+
+
+@pytest.mark.parametrize("lookup_error", [False, True])
+def test_add_preserves_success_when_title_unavailable(monkeypatch, lookup_error):
+    from kroger_shopping import hermes_command
+    from kroger_shopping.exceptions import KrogerError
+
+    client = Mock()
+    client.add_to_cart.return_value = True
+    client.get_product_detail.return_value = None
+    if lookup_error:
+        client.get_product_detail.side_effect = KrogerError("Catalog unavailable")
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+
+    assert handle_kroger("add 0001111050434 2") == (
+        "Added to cart: Title unavailable | UPC: `0001111050434` | Quantity: 2"
+    )
+    client.add_to_cart.assert_called_once()
+
+
+def test_failed_add_does_not_lookup_title(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    client = Mock()
+    client.add_to_cart.return_value = False
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+
+    assert handle_kroger("add 0001111050434") == "Failed to add"
+    client.get_product_detail.assert_not_called()
