@@ -16,6 +16,17 @@ Use the Kroger plugin tools for product data. Do not invoke terminal commands, `
 5. Prefer in-stock products unless the user requests otherwise. Clearly label out-of-stock options when they remain relevant.
 6. Include the selected product's UPC when the user may want to add it to their cart.
 
+When a recommendation has `previously_purchased: true`, include its
+`last_purchased_date` when relevant, describing it as the last purchase recorded
+in local receipts. A null date means the purchase date is unknown; do not infer
+it from result order or invent one.
+
+For requests to inspect all receipts or previously purchased products, direct the
+user to `/kroger receipts` (order numbers and dates) or `/kroger buyagain`
+(distinct UPCs with catalog names). These are user-run commands, accept no
+arguments, and have no corresponding agent tools. `buyagain` lists products;
+it does not modify the cart.
+
 Keep internal ranking mechanics out of the response. Do not describe Kroger result-order points, preference bonuses, nutrition-data availability bonuses, or an aggregate score.
 
 Do not provide medical, toxicology, or safety conclusions from ingredient matching. Describe matches as explainable preference-rule matches only.

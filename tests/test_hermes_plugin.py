@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 
 from kroger_shopping.hermes_command import handle_kroger
+from kroger_shopping.receipts import ReceiptHistoryEntry
 from kroger_shopping.models import (
     Product,
     ProductPreferenceScore,
@@ -53,6 +54,8 @@ def test_plugin_registers_command_read_only_tools_and_skill():
     assert handler.__name__ == "handle_kroger"
     assert metadata["description"] == "Search, recommend, and add Kroger products"
     assert metadata["args_hint"].startswith("<search|recommend|add|")
+    assert "receipts" in metadata["args_hint"]
+    assert "buyagain" in metadata["args_hint"]
     for shortcut in ("-s", "-r", "-a", "-h"):
         assert shortcut in metadata["args_hint"]
 
@@ -122,6 +125,7 @@ def test_read_only_recommend_tool_returns_structured_product_data(monkeypatch):
             "unwanted_ingredients": ["Artificial colors"],
             "ingredient_data_known": True,
             "previously_purchased": True,
+            "last_purchased_date": None,
             "out_of_stock": False,
         }
     ]
@@ -332,3 +336,106 @@ def test_failed_add_does_not_lookup_title(monkeypatch):
 
     assert handle_kroger("add 0001111050434") == "Failed to add"
     client.get_product_detail.assert_not_called()
+
+
+def test_receipts_through_adapters(monkeypatch, dispatch_kroger):
+    from kroger_shopping import hermes_command, receipts
+
+    history = (
+        ReceiptHistoryEntry("z.pdf", frozenset({"0001111050434"}), True,
+                            "1261107276344089802", "April 21, 2026"),
+        ReceiptHistoryEntry("a.pdf", frozenset(), True,
+                            "021~00998~2026-05-13~515~491117", "May 13, 2026"),
+        ReceiptHistoryEntry("bad.pdf", frozenset(), False),
+        ReceiptHistoryEntry("empty.pdf", frozenset(), True),
+    )
+    monkeypatch.setattr(receipts, "load_receipt_history", lambda: history)
+    factory = Mock(side_effect=AssertionError("client created"))
+    monkeypatch.setattr(hermes_command, "get_client", factory)
+    assert dispatch_kroger("receipts") == (
+        "- Order number: 021~00998~2026-05-13~515~491117 | Order date: May 13, 2026\n"
+        "- bad.pdf: Unreadable receipt.\n"
+        "- Order number: Unavailable | Order date: Unavailable (empty.pdf)\n"
+        "- Order number: 1261107276344089802 | Order date: April 21, 2026"
+    )
+    assert dispatch_kroger("receipts extra") == "Usage: /kroger receipts"
+    monkeypatch.setattr(receipts, "load_receipt_history", lambda: ())
+    assert dispatch_kroger("receipts") == "No local receipt PDFs found."
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", [None, "missing", "blank", "lookup", "credentials"])
+def test_buyagain_uses_recommendation_cache(monkeypatch, dispatch_kroger, failure):
+    from types import SimpleNamespace
+    from kroger_shopping import hermes_command, receipts
+
+    first, second = "0001111050434", "0001111050435"
+    monkeypatch.setattr(receipts, "load_receipt_history", lambda directory: (
+        ReceiptHistoryEntry("a.pdf", frozenset({first, second}), True),
+        ReceiptHistoryEntry("b.pdf", frozenset({first}), True),
+    ))
+    assert receipts.load_purchase_upcs() == frozenset({first, second})
+
+    def lookup(upc):
+        if upc == second:
+            if failure == "lookup":
+                raise RuntimeError("private HTTP details")
+            if failure == "missing":
+                return None
+            if failure == "blank":
+                return SimpleNamespace(description="")
+        return SimpleNamespace(description="Milk" if upc == first else "Bread")
+
+    client = Mock()
+    client.get_product_detail.side_effect = lookup
+    factory = Mock(return_value=client)
+    if failure == "credentials":
+        factory.side_effect = ValueError("private credentials")
+    monkeypatch.setattr(hermes_command, "get_client", factory)
+    output = dispatch_kroger("buyagain")
+    assert output.startswith("Previously purchased products: 2\n")
+    assert output.count(first) == output.count(second) == 1
+    assert output.index(first) < output.index(second)
+    assert "private" not in output
+    if failure:
+        assert "Name unavailable" in output
+        assert "Some product names could not be retrieved" in output
+    else:
+        assert output == (
+            f"Previously purchased products: 2\n"
+            f"- Milk | UPC: `{first}`\n- Bread | UPC: `{second}`"
+        )
+    if failure != "credentials":
+        assert [call.args[0] for call in client.get_product_detail.call_args_list] == [first, second]
+    client.add_to_cart.assert_not_called()
+
+
+def test_buyagain_empty_and_usage_remain_lazy(monkeypatch, dispatch_kroger):
+    from kroger_shopping import hermes_command, receipts
+    loader = Mock(return_value=frozenset())
+    factory = Mock(side_effect=AssertionError("client created"))
+    monkeypatch.setattr(receipts, "load_purchase_upcs", loader)
+    monkeypatch.setattr(hermes_command, "get_client", factory)
+    assert dispatch_kroger("buyagain extra") == "Usage: /kroger buyagain"
+    loader.assert_not_called()
+    assert dispatch_kroger("buyagain") == "No purchased UPCs found in local receipts."
+    assert "/kroger buyagain" in hermes_command.help_text()
+    factory.assert_not_called()
+
+
+@pytest.mark.parametrize("date", [None, "2026-07-27"])
+def test_recommend_shows_last_bought(monkeypatch, dispatch_kroger, date):
+    from kroger_shopping import hermes_command
+    product = Product(upc="0001111050434", product_id="0001111050434", description="Milk")
+    client = Mock()
+    client.ranked_search_products.return_value = [RankedProduct(
+        product=product, detail=None, preference_score=ProductPreferenceScore(total=0),
+        original_kroger_rank=1, previously_purchased=True, last_purchased_date=date,
+    )]
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+    output = dispatch_kroger("recommend milk")
+    assert "purchased: yes" in output
+    if date:
+        assert "last bought: 2026-07-27" in output
+    else:
+        assert "last bought:" not in output

@@ -1,6 +1,7 @@
 import shlex
 from typing import Optional, Sequence
 
+from . import receipts
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .recommendations import is_temporarily_out_of_stock
@@ -25,6 +26,8 @@ def help_text() -> str:
         "- /kroger search <term> (shortcut: -s)\n"
         "- /kroger recommend <term> (shortcut: -r)\n"
         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
+        "- /kroger receipts\n"
+        "- /kroger buyagain\n"
         "- /kroger login\n"
         "- /kroger code <authorization-code>\n"
         "- /kroger status\n"
@@ -51,6 +54,16 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
     if subcommand == "-h":
         return help_text()
     subcommand = _SHORTCUTS.get(subcommand, subcommand)
+
+    if subcommand == "buyagain":
+        if args:
+            return "Usage: /kroger buyagain"
+        return _buy_again_text()
+
+    if subcommand == "receipts":
+        if args:
+            return "Usage: /kroger receipts"
+        return _receipt_history_text()
 
     if subcommand == "search":
         if not args:
@@ -99,6 +112,8 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                     matches = f"{matches}; +{len(score.unwanted_ingredients) - 3} more"
                 match_text = f" | matches: {matches}" if matches else ""
                 purchased = " | purchased: yes" if result.previously_purchased else ""
+                if result.previously_purchased and result.last_purchased_date:
+                    purchased += f" | last bought: {result.last_purchased_date}"
                 out_of_stock = (
                     " | out of stock"
                     if is_temporarily_out_of_stock(result.detail)
@@ -182,3 +197,48 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         return "Kroger user authentication cleared."
 
     return f"Unknown subcommand: {subcommand}\n{help_text()}"
+
+
+def _receipt_history_text() -> str:
+    history = receipts.load_receipt_history()
+    if not history:
+        return "No local receipt PDFs found."
+    lines = []
+    for receipt in sorted(history, key=lambda item: item.filename):
+        if not receipt.readable:
+            lines.append(f"- {receipt.filename}: Unreadable receipt.")
+        else:
+            number = receipt.order_number or "Unavailable"
+            date = receipt.order_date or "Unavailable"
+            line = f"- Order number: {number} | Order date: {date}"
+            if not receipt.order_number or not receipt.order_date:
+                line += f" ({receipt.filename})"
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _buy_again_text() -> str:
+    upcs = sorted(receipts.load_purchase_upcs())
+    if not upcs:
+        return "No purchased UPCs found in local receipts."
+
+    names = {}
+    try:
+        client = get_client()
+    except Exception:
+        client = None
+    if client is not None:
+        for upc in upcs:
+            try:
+                product = client.get_product_detail(upc)
+                if product and product.description:
+                    names[upc] = product.description
+            except Exception:
+                # Preserve the cached UPC even when its catalog lookup fails.
+                continue
+
+    lines = [f"Previously purchased products: {len(upcs)}"]
+    if len(names) != len(upcs):
+        lines.append("Some product names could not be retrieved from Kroger.")
+    lines.extend(f"- {names.get(upc, 'Name unavailable')} | UPC: `{upc}`" for upc in upcs)
+    return "\n".join(lines)

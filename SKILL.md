@@ -17,6 +17,8 @@ endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
 
 - `/kroger search <term>` — compact direct search
 - `/kroger recommend <term>` — compact receipt-aware recommendations
+- `/kroger receipts` — local receipt order numbers and dates
+- `/kroger buyagain` — distinct purchased UPCs with current catalog names
 - `/kroger add <UPC> [quantity]` — deterministic cart add/increase
 - `/kroger login`, `/kroger code`, `/kroger status`, `/kroger logout` — user
   OAuth
@@ -63,7 +65,18 @@ Missing ingredient data is unknown, not zero. Ingredient matching is
 explainable preference-rule matching, not medical advice or toxicity scoring.
 Only explicit `TEMPORARILY_OUT_OF_STOCK` inventory is labeled out of stock.
 
-Receipt history is loaded from repository-level `receipts/*.pdf`.
+Receipt history is loaded from repository-level `receipts/*.pdf`, falling back
+to `kroger_shopping/receipts/*.pdf` only when the root directory does not exist.
+The shared cache refreshes when PDF metadata changes. `/kroger receipts` lists
+order numbers and dates without API access; `/kroger buyagain` lists each UPC
+once and retains it as `Name unavailable` if catalog names cannot be retrieved.
+Both accept no arguments and are exclusive to the direct `/kroger` interface.
+
+Previously purchased recommendation results include the latest valid receipt
+order date as `last bought: YYYY-MM-DD`. Missing or invalid dates keep the
+`purchased: yes` marker without a date. `RankedProduct.last_purchased_date` and
+the read-only recommendation tool's `last_purchased_date` field use ISO dates
+or null/None. Recency does not change ranking.
 
 ## Implementation Notes
 

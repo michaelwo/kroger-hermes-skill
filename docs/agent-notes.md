@@ -12,7 +12,8 @@ Guidance for coding agents working in this repository.
   matching, and recommendation ordering.
 - `kroger_shopping/unit_pricing.py` owns size parsing and comparable unit-price
   calculations.
-- `kroger_shopping/receipts.py` owns local PDF UPC extraction and caching.
+- `kroger_shopping/receipts.py` owns local PDF order metadata, UPC extraction,
+  latest purchase dates, and caching.
 - `kroger_shopping/auth.py` owns OAuth requests, token refresh, and token file
   persistence.
 - `kroger_shopping/client.py` owns the public API facade, request handling, and
@@ -29,6 +30,8 @@ Guidance for coding agents working in this repository.
 - `tests/test_basic.py` is the main unit, output, and contract test suite.
 - `tests/test_hermes_plugin.py` covers plugin registration and structured tool
   contracts.
+- `tests/test_receipt_history.py` covers receipt metadata, cache refresh, and
+  latest purchase dates.
 - `references/openapi/*.openapi.json` are committed Kroger OpenAPI references
   used by contract tests.
 - `docs/plans/` contains deferred proposals, not current behavior.
@@ -93,7 +96,21 @@ Additional constraints:
 - Only explicit `TEMPORARILY_OUT_OF_STOCK` inventory is presented as out of
   stock; availability does not currently change ranking.
 - Receipt purchase history comes from exact 13-digit `UPC:` lines in
-  repository-level `receipts/*.pdf`.
+  repository-level `receipts/*.pdf`, falling back to
+  `kroger_shopping/receipts/*.pdf` only when the root directory does not exist.
+- `load_purchase_upcs()` remains the source of purchase membership for
+  recommendations and `/kroger buyagain`. Preserve deduplication and metadata
+  cache invalidation across receipt consumers.
+- Latest purchase dates use the maximum valid `Order Date:` across receipts for
+  each UPC, accepting `Month D, YYYY` and ISO dates. Do not infer dates from
+  filenames or filesystem timestamps. Recency does not affect ranking.
+- `RankedProduct.last_purchased_date` and the structured recommendation payload
+  use an ISO date or None/null. Direct and CLI output adds
+  `last bought: YYYY-MM-DD` when known; missing dates retain `purchased: yes`.
+- `/kroger receipts` lists order numbers and dates without constructing a client.
+  `/kroger buyagain` lists every distinct UPC with a catalog name, retaining UPCs
+  when configuration or individual lookups fail. Neither modifies the cart.
+  Both reject extra arguments and are unavailable as module CLI or agent tools.
 
 ## Verification
 

@@ -72,6 +72,7 @@ def handle_recommend(params: dict[str, Any], **kwargs: Any) -> str:
                         item.preference_score.unwanted_ingredient_count is not None
                     ),
                     "previously_purchased": item.previously_purchased,
+                    "last_purchased_date": item.last_purchased_date,
                     "out_of_stock": is_temporarily_out_of_stock(item.detail),
                 }
             )

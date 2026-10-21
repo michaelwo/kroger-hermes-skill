@@ -15,7 +15,7 @@ Truth. Kroger and Simple Truth are trademarks of their respective owners.
 
 | Path | LLM turn | Purpose |
 | --- | --- | --- |
-| `/kroger ...` | No | Fast, deterministic search, recommendations, authentication, and cart adds |
+| `/kroger ...` | No | Fast, deterministic search, recommendations, receipt history, buy-again lists, authentication, and cart adds |
 | `kroger-shopping:shopping-assistant` | Yes | Conversational product discovery and comparison through read-only tools |
 | `python -m kroger_shopping ...` | No | Predictable terminal and automation interface |
 
@@ -30,6 +30,8 @@ expose a cart-write tool to the LLM.
 - Product detail mapping with typed price, availability, inventory, nutrition,
   allergen, and raw payload access
 - Receipt-aware recommendations with unwanted-ingredient and unit-price ranking
+- Receipt order listings and deduplicated buy-again lists
+- Latest purchase dates on previously purchased recommendations
 - Cart add/increase support through `PUT /v1/cart/add`
 - OAuth2 authorization-code flow for cart writes, including refresh and
   token-file persistence with restrictive permissions
@@ -137,6 +139,8 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger search <term>
 /kroger recommend <term>
 /kroger add <UPC> [quantity]
+/kroger receipts
+/kroger buyagain
 /kroger login
 /kroger code <authorization-code>
 /kroger status
@@ -161,6 +165,11 @@ Bare `/kroger` and `/kroger -h` show help. Authentication commands remain
 `login`, `code`, `status`, and `logout`; these shortcuts apply only to `/kroger`,
 not the standalone Python CLI or structured tools.
 
+Previously purchased recommendations include `last bought: YYYY-MM-DD` using the
+most recent valid receipt order date for that UPC. Missing or invalid dates leave
+the existing `purchased: yes` marker. The structured recommendation tool also
+returns `last_purchased_date` (ISO date or null). Dates do not change ranking.
+
 `/kroger recommend` returns compact product blocks with price, UPC, size, unit
 price, unwanted count, purchase history, stock status, and up to three actual
 unwanted-ingredient matches. It intentionally omits internal score reasons,
@@ -184,7 +193,8 @@ The read-only skill uses:
 
 Structured recommendation results expose product identity, price, size, unit
 price, unwanted count and matches, whether ingredient data is known, purchase
-history, and explicit temporary out-of-stock status. They do not expose
+history (`previously_purchased` and `last_purchased_date`), and explicit temporary
+out-of-stock status. They do not expose
 internal ranking reasons. After product selection, the skill gives the user a
 deterministic `/kroger add <UPC> [quantity]` command rather than modifying the
 cart itself.
@@ -208,7 +218,7 @@ Matching is explainable keyword/alias matching against a committed snapshot of
 Simple Truth unwanted food ingredients; it is not medical advice, toxicity
 scoring, or a claim that a product is unsafe.
 
-Place local Kroger receipt PDFs in:
+Place local Kroger receipt PDFs in the plugin checkout:
 
 ```text
 receipts/*.pdf
@@ -217,6 +227,51 @@ receipts/*.pdf
 The loader extracts exact 13-digit `UPC:` lines, deduplicates them, and refreshes
 its cache when PDF metadata changes. Invalid PDFs produce warnings while valid
 receipts continue to load. Receipt PDFs are local-only and ignored by Git.
+
+`/kroger receipts` lists the order number and order date from every local PDF,
+in filename order. It requires no credentials or API calls. Missing order details
+are shown as `Unavailable`, and unreadable PDFs are identified by filename.
+The loader uses `receipts/` at the plugin root, falling back to
+`kroger_shopping/receipts/` when the root directory does not exist.
+This command accepts no arguments and is available only through `/kroger`.
+For example (illustrative order numbers):
+
+```text
+/kroger receipts
+- Order number: 1234567890123456789 | Order date: May 13, 2026
+- Order number: 1234567890123456790 | Order date: May 18, 2026
+```
+
+An empty directory returns `No local receipt PDFs found.` The root directory takes
+precedence even when empty; the fallback is used only when it does not exist.
+
+`/kroger buyagain` lists every distinct purchased UPC from the same local receipt
+cache used by `recommend`, sorted by UPC, with current Kroger catalog names.
+Each UPC appears once, even when purchased on multiple receipts. Missing names
+or failed lookups show `Name unavailable` while retaining the UPC. Empty history
+requires no credentials. The command accepts no arguments and only lists products;
+use `/kroger add <UPC> [quantity]` to add an item to your cart.
+It reads current history, refreshing after receipt metadata changes, and shows all
+recognized UPCs without truncation. Product names come from the current catalog;
+each distinct UPC is looked up once per command. Credential or lookup failures
+leave the list intact and produce a short notice. If no UPCs are recognized, it
+returns `No purchased UPCs found in local receipts.`
+
+Example with a single purchased product:
+
+```text
+Previously purchased products: 1
+- Simple Truth Organic® Lactose Free Vitamin D Whole Milk Half Gallon | UPC: `0001111050434`
+```
+
+Purchase dates come from `Order Date:` fields in PDF text, using the latest valid
+date across receipts containing each UPC. Supported date formats are
+`Month D, YYYY` and `YYYY-MM-DD`; PDF filenames and file modification times are
+not purchase dates. For example, recommendation metadata can include:
+
+```text
+purchased: yes | last bought: 2026-05-31
+```
 
 Only `TEMPORARILY_OUT_OF_STOCK` is rendered as `out of stock`. `HIGH`, `LOW`,
 missing, and unavailable inventory states remain unmarked and do not affect
@@ -233,7 +288,9 @@ python -m kroger_shopping status
 
 The module CLI is deterministic. It does not include the interactive
 authorization-code commands; use `/kroger login` and `/kroger code` for that
-workflow.
+workflow. The receipt inspection commands `receipts` and `buyagain` are also
+exclusive to `/kroger`. Module CLI recommendations include the same
+`last bought: YYYY-MM-DD` metadata when a purchase date is known.
 
 ## Python Usage
 
@@ -258,6 +315,11 @@ not yet typed. Ranked results retain score reasons, warnings, inspected fields,
 unwanted matches, and ingredient-match details for programmatic callers even
 though public command and skill output hides internal score mechanics.
 
+Each `RankedProduct` also exposes `previously_purchased` and
+`last_purchased_date` (an ISO date string or `None`). The shared receipt interfaces
+are `load_receipt_history()`, `load_purchase_upcs()`, and
+`load_last_purchase_dates()` in `kroger_shopping.receipts`.
+
 ## Architecture
 
 - `kroger_shopping/models.py` — domain models, enums, scoring metadata, and
@@ -266,7 +328,7 @@ though public command and skill output hides internal score mechanics.
 - `kroger_shopping/parsers.py` — Kroger response-to-model mapping
 - `kroger_shopping/recommendations.py` — ingredient matching and ranking
 - `kroger_shopping/unit_pricing.py` — size parsing and comparable unit prices
-- `kroger_shopping/receipts.py` — local PDF UPC extraction and caching
+- `kroger_shopping/receipts.py` — local PDF order metadata, UPC extraction, latest purchase dates, and caching
 - `kroger_shopping/auth.py` — OAuth requests, refresh, and token persistence
 - `kroger_shopping/client.py` — public API facade, HTTP handling, and auth retry
 - `kroger_shopping/hermes_command.py` — current direct `/kroger` presentation
@@ -275,7 +337,8 @@ though public command and skill output hides internal score mechanics.
 - root `plugin.yaml` and `__init__.py` — Hermes manifest and registration
 - `commands/kroger.py` — legacy Hermes command compatibility adapter
 - `tests/test_basic.py` — unit, output, and OpenAPI contract tests
-- `tests/test_hermes_plugin.py` — plugin registration and tool contract tests
+- `tests/test_hermes_plugin.py` — plugin registration, command adapters, and tool contract tests
+- `tests/test_receipt_history.py` — receipt metadata, caching, and latest purchase date tests
 - `references/openapi/*.openapi.json` — committed Kroger OpenAPI references
 - `docs/plans/` — deferred, explicitly unimplemented design plans
 

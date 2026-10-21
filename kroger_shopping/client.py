@@ -175,6 +175,7 @@ class KrogerClient:
 
         profile = preferences or PreferenceProfile()
         purchase_upcs = receipts.load_purchase_upcs()
+        purchase_dates = receipts.load_last_purchase_dates()
         candidates = self.search_products(
             term,
             limit=candidate_limit,
@@ -206,6 +207,7 @@ class KrogerClient:
                     preference_score=score,
                     original_kroger_rank=index,
                     previously_purchased=product.upc in purchase_upcs,
+                    last_purchased_date=purchase_dates.get(product.upc) if product.upc in purchase_upcs else None,
                 )
             )
 

@@ -26,6 +26,7 @@ from kroger_shopping.models import (
 def isolate_local_purchase_history(monkeypatch):
     real_loader = receipts.load_purchase_upcs
     monkeypatch.setattr(receipts, "load_purchase_upcs", lambda: frozenset())
+    monkeypatch.setattr(receipts, "load_last_purchase_dates", lambda: {})
     return real_loader
 
 
@@ -1914,7 +1915,7 @@ def test_receipt_loader_combines_valid_pdfs_and_skips_bad_ones(
     (tmp_path / "valid.pdf").write_bytes(b"pdf")
     (tmp_path / "bad.pdf").write_bytes(b"bad")
     monkeypatch.setattr(receipts, "PdfReader", Reader)
-    receipts._load_purchase_upcs_cached.cache_clear()
+    receipts._load_receipt_history_cached.cache_clear()
 
     with pytest.warns(RuntimeWarning, match="bad.pdf"):
         purchased = isolate_local_purchase_history(tmp_path)
@@ -1944,7 +1945,9 @@ def test_ranked_search_promotes_a_previously_purchased_upc(monkeypatch):
         lambda: frozenset({"0001111040102"}),
     )
 
+    monkeypatch.setattr(receipts, "load_last_purchase_dates", lambda: {"0001111040102": "2026-07-27"})
     results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
 
+    assert [item.last_purchased_date for item in results] == ["2026-07-27", None]
     assert [item.product.description for item in results] == ["Purchased", "Current Best"]
     assert [item.previously_purchased for item in results] == [True, False]

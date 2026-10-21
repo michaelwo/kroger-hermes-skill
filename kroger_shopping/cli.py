@@ -95,6 +95,8 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             else "unknown"
         )
         purchased = " | purchased: yes" if item.previously_purchased else ""
+        if item.previously_purchased and item.last_purchased_date:
+            purchased += f" | last bought: {item.last_purchased_date}"
         out_of_stock = (
             " | out of stock"
             if recommendations.is_temporarily_out_of_stock(item.detail)
