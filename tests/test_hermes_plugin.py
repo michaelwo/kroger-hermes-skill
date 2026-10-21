@@ -439,3 +439,19 @@ def test_recommend_shows_last_bought(monkeypatch, dispatch_kroger, date):
         assert "last bought: 2026-07-27" in output
     else:
         assert "last bought:" not in output
+
+
+def test_version_reads_manifest_without_client(monkeypatch, tmp_path):
+    from kroger_shopping import hermes_command
+
+    package = tmp_path / "kroger_shopping"
+    package.mkdir()
+    monkeypatch.setattr(hermes_command, "__file__", str(package / "hermes_command.py"))
+    monkeypatch.setattr(
+        hermes_command, "get_client", Mock(side_effect=AssertionError("No client needed"))
+    )
+    (tmp_path / "plugin.yaml").write_text('name: kroger-shopping\nversion: "9.8.7"\n')
+
+    assert handle_kroger("version") == "9.8.7"
+    assert handle_kroger("version extra") == "Usage: /kroger version"
+    assert "/kroger version" in handle_kroger()

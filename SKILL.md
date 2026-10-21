@@ -1,7 +1,7 @@
 ---
 name: kroger-shopping
 description: API-first Kroger shopping integration for deterministic Hermes commands, conversational read-only product discovery, OAuth, and cart adds.
-version: 2.2.2
+version: 2.2.3
 category: shopping
 ---
 
@@ -19,6 +19,7 @@ endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
 - `/kroger recommend <term>` — compact receipt-aware recommendations
 - `/kroger receipts` — local receipt order numbers and dates
 - `/kroger buyagain` — distinct purchased UPCs with current catalog names
+- `/kroger version` — installed plugin version
 - `/kroger add <UPC> [quantity]` — deterministic cart add/increase
 - `/kroger login`, `/kroger code`, `/kroger status`, `/kroger logout` — user
   OAuth

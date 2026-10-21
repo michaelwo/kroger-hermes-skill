@@ -1,4 +1,6 @@
+import re
 import shlex
+from pathlib import Path
 from typing import Optional, Sequence
 
 from . import receipts
@@ -28,6 +30,7 @@ def help_text() -> str:
         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
         "- /kroger receipts\n"
         "- /kroger buyagain\n"
+        "- /kroger version\n"
         "- /kroger login\n"
         "- /kroger code <authorization-code>\n"
         "- /kroger status\n"
@@ -54,6 +57,15 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
     if subcommand == "-h":
         return help_text()
     subcommand = _SHORTCUTS.get(subcommand, subcommand)
+
+    if subcommand == "version":
+        if args:
+            return "Usage: /kroger version"
+        manifest = Path(__file__).resolve().parents[1] / "plugin.yaml"
+        match = re.search(r'^version:\s*[\"\']?([^\s\"\']+)', manifest.read_text(encoding="utf-8"), re.MULTILINE)
+        if match is None:
+            return "Plugin version is unavailable."
+        return match.group(1)
 
     if subcommand == "buyagain":
         if args:

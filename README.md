@@ -141,6 +141,7 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger add <UPC> [quantity]
 /kroger receipts
 /kroger buyagain
+/kroger version
 /kroger login
 /kroger code <authorization-code>
 /kroger status
@@ -161,6 +162,8 @@ Shopping shortcuts occupy the subcommand position and cannot be combined:
 ```
 
 `-s`, `-r`, and `-a` are aliases for `search`, `recommend`, and `add`.
+`/kroger version` prints the installed plugin version.
+
 Bare `/kroger` and `/kroger -h` show help. Authentication commands remain
 `login`, `code`, `status`, and `logout`; these shortcuts apply only to `/kroger`,
 not the standalone Python CLI or structured tools.
