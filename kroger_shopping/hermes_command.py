@@ -129,9 +129,9 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                 if len(score.unwanted_ingredients) > 3:
                     matches = f"{matches}; +{len(score.unwanted_ingredients) - 3} more"
                 match_text = f" | matches: {matches}" if matches else ""
-                purchased = " | purchased: yes" if result.previously_purchased else ""
+                purchased = ""
                 if result.previously_purchased and result.last_purchased_date:
-                    purchased += f" | last bought: {result.last_purchased_date}"
+                    purchased += f" | lp: {result.last_purchased_date}"
                 out_of_stock = (
                     " | out of stock"
                     if is_temporarily_out_of_stock(result.detail)
@@ -139,7 +139,7 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                 )
                 metadata = (
                     f"{price} | `{product.upc}` "
-                    f"| size: {size} | unit: {unit} | unwanted: {unwanted}"
+                    f"| sz: {size} | pu: {unit} | unwntd: {unwanted}"
                     f"{purchased}{out_of_stock}{match_text}"
                 )
                 lines.append(f"**{product.description}**\n{metadata}")

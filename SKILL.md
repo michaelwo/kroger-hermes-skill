@@ -75,8 +75,7 @@ show `Name unavailable` with a reminder to refresh using `/kroger pull`.
 Both accept no arguments and are exclusive to the direct `/kroger` interface.
 
 Previously purchased recommendation results include the latest valid receipt
-order date as `last bought: YYYY-MM-DD`. Missing or invalid dates keep the
-`purchased: yes` marker without a date. `RankedProduct.last_purchased_date` and
+order date as `lp: YYYY-MM-DD`. Missing or invalid dates omit the purchase-date label. `RankedProduct.last_purchased_date` and
 the read-only recommendation tool's `last_purchased_date` field use ISO dates
 or null/None. Recency does not change ranking.
 

@@ -106,7 +106,7 @@ Additional constraints:
   filenames or filesystem timestamps. Recency does not affect ranking.
 - `RankedProduct.last_purchased_date` and the structured recommendation payload
   use an ISO date or None/null. Direct and CLI output adds
-  `last bought: YYYY-MM-DD` when known; missing dates retain `purchased: yes`.
+  `lp: YYYY-MM-DD` when known; missing dates omit that label.
 - `/kroger receipts` lists order numbers and dates without constructing a client.
   `/kroger buyagain` lists every distinct UPC with a locally exported name, retaining UPCs
   when names are missing. Buy-again must not construct a client or make catalog

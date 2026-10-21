@@ -168,12 +168,11 @@ Bare `/kroger` and `/kroger -h` show help. Authentication commands remain
 `login`, `code`, `status`, and `logout`; these shortcuts apply only to `/kroger`,
 not the standalone Python CLI or structured tools.
 
-Previously purchased recommendations include `last bought: YYYY-MM-DD` using the
-most recent valid receipt order date for that UPC. Missing or invalid dates leave
-the existing `purchased: yes` marker. The structured recommendation tool also
+Previously purchased recommendations include `lp: YYYY-MM-DD` using the
+most recent valid receipt order date for that UPC. Missing or invalid dates omit the purchase-date label. The structured recommendation tool also
 returns `last_purchased_date` (ISO date or null). Dates do not change ranking.
 
-`/kroger recommend` returns compact product blocks with price, UPC, size, unit
+`/kroger recommend` uses `sz:`, `pu:`, `unwntd:`, and `lp:` labels and returns compact product blocks with price, UPC, size, unit
 price, unwanted count, purchase history, stock status, and up to three actual
 unwanted-ingredient matches. It intentionally omits internal score reasons,
 warnings, and aggregate scores.
@@ -270,7 +269,7 @@ across orders containing each UPC. Supported formats are `YYYY-MM-DD` and
 are not purchase dates. Recommendation metadata can include:
 
 ```text
-purchased: yes | last bought: 2026-05-31
+lp: 2026-05-31
 ```
 
 Only `TEMPORARILY_OUT_OF_STOCK` is rendered as `out of stock`. `HIGH`, `LOW`,
@@ -290,7 +289,7 @@ The module CLI is deterministic. It does not include the interactive
 authorization-code commands; use `/kroger login` and `/kroger code` for that
 workflow. The receipt inspection commands `receipts` and `buyagain` are also
 exclusive to `/kroger`. Module CLI recommendations include the same
-`last bought: YYYY-MM-DD` metadata when a purchase date is known.
+`lp: YYYY-MM-DD` metadata when a purchase date is known.
 
 ## Python Usage
 

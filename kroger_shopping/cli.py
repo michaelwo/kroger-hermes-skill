@@ -97,9 +97,9 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             if score.unwanted_ingredient_count is not None
             else "unknown"
         )
-        purchased = " | purchased: yes" if item.previously_purchased else ""
+        purchased = ""
         if item.previously_purchased and item.last_purchased_date:
-            purchased += f" | last bought: {item.last_purchased_date}"
+            purchased += f" | lp: {item.last_purchased_date}"
         out_of_stock = (
             " | out of stock"
             if recommendations.is_temporarily_out_of_stock(item.detail)
@@ -107,9 +107,9 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
         )
         metadata = (
             f"{_format_price(product.price)} | {product.upc} "
-            f"| size: {_format_optional_text(product.size)} "
-            f"| unit: {format_unit_price_for_products(product, products)} "
-            f"| unwanted: {unwanted}{purchased}{out_of_stock}"
+            f"| sz: {_format_optional_text(product.size)} "
+            f"| pu: {format_unit_price_for_products(product, products)} "
+            f"| unwntd: {unwanted}{purchased}{out_of_stock}"
         )
         blocks.append(f"{product.description}\n{metadata}")
     print("\n\n".join(blocks))

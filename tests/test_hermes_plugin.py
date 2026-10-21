@@ -415,11 +415,11 @@ def test_recommend_shows_last_bought(monkeypatch, dispatch_kroger, date):
     )]
     monkeypatch.setattr(hermes_command, "get_client", lambda: client)
     output = dispatch_kroger("recommend milk")
-    assert "purchased: yes" in output
+    assert "purchased:" not in output
     if date:
-        assert "last bought: 2026-07-27" in output
+        assert "lp: 2026-07-27" in output
     else:
-        assert "last bought:" not in output
+        assert "lp:" not in output
 
 
 def test_version_reads_manifest_without_client(monkeypatch, tmp_path):
