@@ -247,8 +247,10 @@ available only through `/kroger`.
 
 `/kroger buyagain` lists every distinct purchased UPC from the same local receipt
 cache used by `recommend`, sorted by UPC, with names saved by `/kroger pull`.
-The pull stores line-item names in each order's `productNames` mapping alongside
-`upcs`. Each UPC appears once, even when purchased on multiple orders; the latest
+The pull stores receipt-detail titles in each order's `productNames` mapping alongside
+`upcs`. Names are `description` plus size, and only for UPCs already on that order.
+A detail call that fails keeps the previous titles for that receipt. A detail that
+returns and shares no UPC with the list row stays untitled. Each UPC appears once, even when purchased on multiple orders; the latest
 dated order with a name takes precedence. Buy-again makes no catalog requests
 and requires no API credentials. Missing names show `Name unavailable` with a
 reminder to run `/kroger pull`; older exports containing only UPCs still work.

@@ -19,7 +19,9 @@ from .exceptions import KrogerError
 from .receipts import DEFAULT_RECEIPTS_DIR, PURCHASE_HISTORY_FILENAME
 
 SEARCH_URL = "https://www.kroger.com/atlas/v1/post-order/v1/purchase-history-search"
+DETAIL_URL = "https://www.kroger.com/atlas/v1/purchase-history/v2/details"
 PAGE_SIZE = 10
+DETAIL_BATCH = 8
 DEFAULT_CDP_HOST = "127.0.0.1"
 DEFAULT_CDP_PORT = 9222
 
@@ -64,6 +66,20 @@ def pull_purchase_history(
     if parsed.get("error"):
         raise CdpError("Kroger purchase-history-search failed.")
     orders = [normalize_order(order) for order in parsed.get("orders") or []]
+    keys = [order["receiptKey"] for order in orders if order.get("receiptKey")]
+    fetched: set[str] = set()
+    if keys:
+        detail_raw = _evaluate(ws_url, _detail_expression(keys), 180)
+        detail_parsed = json.loads(detail_raw)
+        if not detail_parsed.get("error"):
+            fetched = apply_name_maps(
+                orders,
+                detail_parsed.get("names") or {},
+                detail_parsed.get("fetched") or [],
+            )
+    path = directory / PURCHASE_HISTORY_FILENAME
+    preserve_prior_names(orders, _read_orders(path), fetched)
+    titled = sum(1 for order in orders if order.get("productNames"))
     payload = {
         "source": "kroger-atlas-purchase-history-search",
         "fetchedAt": datetime.now(timezone.utc).isoformat(),
@@ -71,9 +87,13 @@ def pull_purchase_history(
         "orders": orders,
     }
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / PURCHASE_HISTORY_FILENAME
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return {"path": path, "orders": len(orders), "pageTotal": parsed.get("pageTotal")}
+    return {
+        "path": path,
+        "orders": len(orders),
+        "pageTotal": parsed.get("pageTotal"),
+        "titled": titled,
+    }
 
 
 def unique_upcs(order: dict[str, Any]) -> list[str]:
@@ -128,6 +148,137 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def apply_name_maps(
+    orders: list[dict[str, Any]],
+    names: dict[str, Any],
+    fetched: list[str],
+) -> set[str]:
+    """Keep detail titles only for UPCs already on the order. Return fetched keys."""
+    fetched_keys = {key for key in fetched if isinstance(key, str)}
+    for order in orders:
+        key = order.get("receiptKey")
+        if not isinstance(key, str):
+            continue
+        raw = names.get(key) if isinstance(names, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        valid = set(order.get("upcs") or [])
+        kept = {
+            upc: " ".join(name.split())
+            for upc, name in raw.items()
+            if upc in valid and isinstance(name, str) and name.strip()
+        }
+        if kept:
+            order["productNames"] = kept
+        elif key in fetched_keys:
+            order.pop("productNames", None)
+    return fetched_keys
+
+
+def preserve_prior_names(
+    orders: list[dict[str, Any]],
+    previous: list[dict[str, Any]],
+    fetched: set[str],
+) -> None:
+    """Keep stored titles when that receipt's detail call did not return."""
+    prior = {
+        order.get("receiptKey"): order.get("productNames")
+        for order in previous
+        if isinstance(order, dict) and isinstance(order.get("productNames"), dict)
+    }
+    for order in orders:
+        key = order.get("receiptKey")
+        if order.get("productNames") or key in fetched:
+            continue
+        names = prior.get(key)
+        if names:
+            order["productNames"] = names
+
+
+def _read_orders(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return []
+    orders = payload.get("orders") if isinstance(payload, dict) else None
+    if not isinstance(orders, list):
+        return []
+    return [order for order in orders if isinstance(order, dict)]
+
+
+def _detail_expression(keys: list[str]) -> str:
+    payload = json.dumps(keys)
+    url = json.dumps(DETAIL_URL)
+    return f"""(async () => {{
+  const keys = {payload};
+  const url = {url};
+  const names = {{}};
+  const fetched = [];
+  const failed = [];
+  function toBody(key) {{
+    const parts = String(key).split("~");
+    if (parts.length !== 5) return null;
+    return {{
+      divisionNumber: parts[0],
+      storeNumber: parts[1],
+      transactionDate: parts[2],
+      terminalNumber: parts[3],
+      transactionId: parts[4]
+    }};
+  }}
+  function headers() {{
+    const h = {{
+      "accept": "application/json",
+      "content-type": "application/json",
+      "X-Kroger-Channel": "WEB"
+    }};
+    if (window.bmak && window.bmak.get_telemetry) {{
+      h["Akamai-BM-Telemetry"] = bmak.get_telemetry();
+    }}
+    return h;
+  }}
+  for (let i = 0; i < keys.length; i += {DETAIL_BATCH}) {{
+    const chunk = keys.slice(i, i + {DETAIL_BATCH});
+    const body = chunk.map(toBody).filter(Boolean);
+    try {{
+      const res = await fetch(url, {{
+        method: "POST",
+        credentials: "include",
+        headers: headers(),
+        body: JSON.stringify(body)
+      }});
+      const parsed = await res.json();
+      if (!res.ok) {{
+        failed.push(chunk.length);
+        continue;
+      }}
+      for (const detail of (parsed.data && parsed.data.purchaseHistoryDetails) || []) {{
+        const id = detail.purchaseId && detail.purchaseId.receiptId;
+        if (!id) continue;
+        fetched.push(id);
+        const map = {{}};
+        for (const item of detail.items || []) {{
+          const purchased = item.purchasedData || {{}};
+          const upc = purchased.upc;
+          const info = purchased.displayInfo || {{}};
+          const desc = info.description;
+          const size = info.customerFacingSize;
+          if (typeof upc === "string" && upc.length === 13 && /^[0-9]+$/.test(upc) && typeof desc === "string" && desc.trim()) {{
+            const sizeText = typeof size === "string" ? size.trim() : "";
+            map[upc] = sizeText ? desc.trim() + ", " + sizeText : desc.trim();
+          }}
+        }}
+        names[id] = map;
+      }}
+    }} catch (e) {{
+      failed.push(chunk.length);
+    }}
+    await new Promise(r => setTimeout(r, 200));
+  }}
+  return JSON.stringify({{names, fetched, failed}});
+}})()"""
+
+
 def _history_expression() -> str:
     search = json.dumps(SEARCH_URL)
     return f"""(async () => {{
@@ -160,8 +311,8 @@ def _cdp_json(host: str, port: int, path: str) -> Any:
         raise CdpError("Chrome DevTools returned a non-JSON body.") from exc
 
 
-def _evaluate(ws_url: str, expression: str) -> str:
-    sock = _ws_connect(ws_url)
+def _evaluate(ws_url: str, expression: str, timeout: int = 20) -> str:
+    sock = _ws_connect(ws_url, timeout)
     try:
         _ws_send(sock, json.dumps({
             "id": 1,
@@ -189,14 +340,14 @@ def _evaluate(ws_url: str, expression: str) -> str:
         sock.close()
 
 
-def _ws_connect(ws_url: str) -> _BufferedSocket:
+def _ws_connect(ws_url: str, timeout: int = 20) -> _BufferedSocket:
     parsed = urlparse(ws_url)
     host = parsed.hostname or DEFAULT_CDP_HOST
     port = parsed.port or DEFAULT_CDP_PORT
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
-    sock = socket.create_connection((host, port), timeout=20)
+    sock = socket.create_connection((host, port), timeout=timeout)
     key = base64.b64encode(os.urandom(16)).decode("ascii")
     request = (
         f"GET {path} HTTP/1.1\r\n"

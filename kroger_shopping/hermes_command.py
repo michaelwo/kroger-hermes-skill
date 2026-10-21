@@ -225,7 +225,8 @@ def _pull_purchase_history_text() -> str:
     except CdpError as exc:
         return str(exc)
     return (
-        f"Wrote {result['orders']} orders to `{result['path']}`.\n"
+        f"Wrote {result['orders']} orders to `{result['path']}`.{chr(10)}"
+        f"Titles on {result.get('titled', 0)} orders.{chr(10)}"
         "Open `/kroger receipts` to list them."
     )
 

@@ -95,7 +95,45 @@ def test_pull_preserves_names_for_offline_buyagain(monkeypatch, tmp_path):
     client.assert_not_called()
 
 
-def test_product_name_fields_and_missing_names():
+def test_detail_names_keep_only_order_upcs_and_preserve_unfetched():
+    from kroger_shopping.purchase_history import apply_name_maps, preserve_prior_names
+
+    orders = [{
+        "receiptKey": "540~00013~2026-10-20~1460~1",
+        "upcs": ["0001111050434"],
+        "productNames": {"0001111050434": "List name"},
+    }, {
+        "receiptKey": "018~00680~2026-09-11~503~1",
+        "upcs": ["0001111036789"],
+        "productNames": {"0001111036789": "Old fuel"},
+    }]
+    fetched = apply_name_maps(orders, {
+        "540~00013~2026-10-20~1460~1": {
+            "0001111050434": "  Artesano   Buns  ",
+            "0009999999999": "Not on the order",
+        },
+        "018~00680~2026-09-11~503~1": {"0001111036838": "Different fuel UPC"},
+    }, [
+        "540~00013~2026-10-20~1460~1",
+        "018~00680~2026-09-11~503~1",
+    ])
+    assert orders[0]["productNames"] == {"0001111050434": "Artesano Buns"}
+    assert "productNames" not in orders[1]
+    assert fetched == {
+        "540~00013~2026-10-20~1460~1",
+        "018~00680~2026-09-11~503~1",
+    }
+    missed = [{"receiptKey": "021~00998~2026-01-24~505~1", "upcs": ["0078535702350"]}]
+    preserve_prior_names(missed, [{
+        "receiptKey": "021~00998~2026-01-24~505~1",
+        "productNames": {"0078535702350": "Peet's"},
+    }], set())
+    assert missed[0]["productNames"]["0078535702350"] == "Peet's"
+    preserve_prior_names(orders[1:], [{
+        "receiptKey": "018~00680~2026-09-11~503~1",
+        "productNames": {"0001111036789": "Old fuel"},
+    }], fetched)
+    assert "productNames" not in orders[1]
     order = normalize_order({"lineItems": [
         {"upc": "0001111050434", "productName": "Milk"},
         {"upc": "0001111050435", "name": "Bread"},
