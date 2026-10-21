@@ -1,7 +1,7 @@
 ---
 name: kroger-shopping
 description: API-first Kroger shopping integration for deterministic Hermes commands, conversational read-only product discovery, OAuth, and cart adds.
-version: 2.2.0
+version: 2.2.2
 category: shopping
 ---
 
