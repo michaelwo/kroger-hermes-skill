@@ -31,6 +31,8 @@ def help_text() -> str:
         "- /kroger receipts\n"
         "- /kroger pull\n"
         "- /kroger buyagain\n"
+        "- /kroger clipcoupon all\n"
+        "- /kroger clipcoupon all --dry-run\n"
         "- /kroger version\n"
         "- /kroger login\n"
         "- /kroger code <authorization-code>\n"
@@ -82,6 +84,9 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         if args:
             return "Usage: /kroger pull"
         return _pull_purchase_history_text()
+
+    if subcommand == "clipcoupon":
+        return _clipcoupon_text(args)
 
     if subcommand == "search":
         if not args:
@@ -229,6 +234,23 @@ def _pull_purchase_history_text() -> str:
         f"Titles on {result.get('titled', 0)} orders.{chr(10)}"
         "Open `/kroger receipts` to list them."
     )
+
+
+def _clipcoupon_text(args: Sequence[str]) -> str:
+    from .clipcoupon import clip, dry_run
+    from .purchase_history import CdpError
+
+    wanted = list(args)
+    if wanted == ["all", "--dry-run"]:
+        runner = dry_run
+    elif wanted == ["all"]:
+        runner = clip
+    else:
+        return "Usage: /kroger clipcoupon all [--dry-run]"
+    try:
+        return runner()
+    except CdpError as exc:
+        return str(exc)
 
 
 def _receipt_history_text() -> str:
