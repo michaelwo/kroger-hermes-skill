@@ -12,7 +12,7 @@ Guidance for coding agents working in this repository.
   matching, and recommendation ordering.
 - `kroger_shopping/unit_pricing.py` owns size parsing and comparable unit-price
   calculations.
-- `kroger_shopping/receipts.py` owns local PDF order metadata, UPC extraction,
+- `kroger_shopping/receipts.py` owns local JSON order metadata, UPC ingestion,
   latest purchase dates, and caching.
 - `kroger_shopping/auth.py` owns OAuth requests, token refresh, and token file
   persistence.
@@ -40,7 +40,7 @@ Guidance for coding agents working in this repository.
 
 - Inspect existing code and tests before editing.
 - Preserve user changes in the working tree; do not revert unrelated files.
-- Do not commit `.env`, token files, credentials, receipt PDFs, or live API
+- Do not commit `.env`, token files, credentials, purchase history exports, or live API
   output containing secrets or personal data.
 - Preserve the Kroger/Simple Truth non-affiliation disclaimer in public-facing
   docs.
@@ -95,13 +95,13 @@ Additional constraints:
   or toxicity scoring.
 - Only explicit `TEMPORARILY_OUT_OF_STOCK` inventory is presented as out of
   stock; availability does not currently change ranking.
-- Receipt purchase history comes from exact 13-digit `UPC:` lines in
-  repository-level `receipts/*.pdf`, falling back to
-  `kroger_shopping/receipts/*.pdf` only when the root directory does not exist.
+- Receipt purchase history comes from exact 13-digit strings in each order’s `upcs` array in
+  repository-level `receipts/purchase-history.json`, falling back to
+  `kroger_shopping/receipts/purchase-history.json` only when the root directory does not exist.
 - `load_purchase_upcs()` remains the source of purchase membership for
   recommendations and `/kroger buyagain`. Preserve deduplication and metadata
   cache invalidation across receipt consumers.
-- Latest purchase dates use the maximum valid `Order Date:` across receipts for
+- Latest purchase dates use the maximum valid `orderDate` across receipts for
   each UPC, accepting `Month D, YYYY` and ISO dates. Do not infer dates from
   filenames or filesystem timestamps. Recency does not affect ranking.
 - `RankedProduct.last_purchased_date` and the structured recommendation payload

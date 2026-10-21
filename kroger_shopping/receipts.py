@@ -1,27 +1,20 @@
+import json
 import re
 import warnings
 from datetime import datetime
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable
-
-from pypdf import PdfReader
 
 
 DEFAULT_RECEIPTS_DIR = Path(__file__).resolve().parents[1] / "receipts"
 BUNDLED_RECEIPTS_DIR = Path(__file__).resolve().parent / "receipts"
-UPC_LINE_PATTERN = re.compile(r"(?im)^\s*UPC:\s*(\d{13})\s*$")
-
-
-def extract_upcs_from_text(text: str) -> set[str]:
-    """Extract exact Kroger 13-digit UPC lines from receipt text."""
-    return set(UPC_LINE_PATTERN.findall(text or ""))
+PURCHASE_HISTORY_FILENAME = "purchase-history.json"
 
 
 @dataclass(frozen=True)
 class ReceiptHistoryEntry:
-    """One local receipt and its recognized purchase history."""
+    """One exported order and its recognized purchase history."""
 
     filename: str
     upcs: frozenset[str]
@@ -33,7 +26,7 @@ class ReceiptHistoryEntry:
 def load_receipt_history(
     receipts_dir: Path = DEFAULT_RECEIPTS_DIR,
 ) -> tuple[ReceiptHistoryEntry, ...]:
-    """Load receipts in filename order, refreshing when PDF metadata changes."""
+    """Load receipts in filename order, refreshing when JSON metadata changes."""
     directory = Path(receipts_dir)
     if directory == DEFAULT_RECEIPTS_DIR and not directory.is_dir():
         directory = BUNDLED_RECEIPTS_DIR
@@ -74,15 +67,15 @@ def _receipt_fingerprint(directory: Path) -> tuple[tuple[str, int, int], ...]:
     if not directory.is_dir():
         return ()
 
-    entries = []
-    for path in sorted(directory.glob("*.pdf")):
-        try:
-            stat = path.stat()
-        except OSError as exc:
-            _warn_receipt(path.name, exc)
-            continue
-        entries.append((path.name, stat.st_size, stat.st_mtime_ns))
-    return tuple(entries)
+    path = directory / PURCHASE_HISTORY_FILENAME
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return ()
+    except OSError as exc:
+        _warn_receipt(path.name, exc)
+        return ()
+    return ((path.name, stat.st_size, stat.st_mtime_ns),)
 
 
 @lru_cache(maxsize=8)
@@ -90,29 +83,35 @@ def _load_receipt_history_cached(
     directory_value: str,
     fingerprint: tuple[tuple[str, int, int], ...],
 ) -> tuple[ReceiptHistoryEntry, ...]:
-    directory = Path(directory_value)
+    filename = fingerprint[0][0]
+    path = Path(directory_value) / filename
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or not isinstance(payload.get("orders"), list):
+            raise ValueError("Expected an object with an orders array")
+    except (OSError, UnicodeError, ValueError) as exc:
+        _warn_receipt(filename, exc)
+        return (ReceiptHistoryEntry(filename, frozenset(), False),)
+
     history = []
-    for filename, _size, _mtime_ns in fingerprint:
-        path = directory / filename
-        try:
-            text = "\n".join(_page_texts(PdfReader(path).pages))
-        except Exception as exc:
-            _warn_receipt(filename, exc)
-            history.append(ReceiptHistoryEntry(filename, frozenset(), False))
+    for index, order in enumerate(payload["orders"]):
+        label = f"{filename} orders[{index}]"
+        if not isinstance(order, dict) or not isinstance(order.get("upcs", []), list):
+            _warn_receipt(label, ValueError("Expected an order object with a UPC array"))
+            history.append(ReceiptHistoryEntry(label, frozenset(), False))
             continue
-        number = re.search(r"(?im)^[ \t]*Order Number:[ \t]*([^\r\n]+)", text)
-        date = re.search(r"(?im)^[ \t]*Order Date:[ \t]*([^\r\n]+)", text)
+        upcs = frozenset(
+            upc for upc in order.get("upcs", [])
+            if isinstance(upc, str) and re.fullmatch(r"[0-9]{13}", upc)
+        )
+        number = order.get("receiptKey")
+        date = order.get("orderDate")
         history.append(ReceiptHistoryEntry(
-            filename, frozenset(extract_upcs_from_text(text)), True,
-            number.group(1).strip() if number else None,
-            date.group(1).strip() if date else None,
+            filename, upcs, True,
+            number if isinstance(number, str) and number.strip() else None,
+            date if isinstance(date, str) and date.strip() else None,
         ))
     return tuple(history)
-
-
-def _page_texts(pages: Iterable[object]) -> Iterable[str]:
-    for page in pages:
-        yield page.extract_text() or ""
 
 
 def _warn_receipt(filename: str, exc: Exception) -> None:

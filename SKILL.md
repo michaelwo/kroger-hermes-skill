@@ -66,9 +66,9 @@ Missing ingredient data is unknown, not zero. Ingredient matching is
 explainable preference-rule matching, not medical advice or toxicity scoring.
 Only explicit `TEMPORARILY_OUT_OF_STOCK` inventory is labeled out of stock.
 
-Receipt history is loaded from repository-level `receipts/*.pdf`, falling back
-to `kroger_shopping/receipts/*.pdf` only when the root directory does not exist.
-The shared cache refreshes when PDF metadata changes. `/kroger receipts` lists
+Receipt history is loaded from repository-level `receipts/purchase-history.json`, falling back
+to `kroger_shopping/receipts/purchase-history.json` only when the root directory does not exist.
+The shared cache refreshes when JSON file metadata changes. `/kroger receipts` lists
 order numbers and dates without API access; `/kroger buyagain` lists each UPC
 once and retains it as `Name unavailable` if catalog names cannot be retrieved.
 Both accept no arguments and are exclusive to the direct `/kroger` interface.

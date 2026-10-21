@@ -52,7 +52,7 @@ For the standard `/opt/hermes` deployment, the interpreter to target is
 `/opt/hermes/.venv/bin/python`. After cloning, the dependency manifest is under
 the installed plugin directory as `requirements.txt`.
 
-Receipt parsing requires `pypdf`; OCR is not used.
+Purchase history ingestion uses the Python standard library.
 
 ### Hermes plugin
 
@@ -221,32 +221,23 @@ Matching is explainable keyword/alias matching against a committed snapshot of
 Simple Truth unwanted food ingredients; it is not medical advice, toxicity
 scoring, or a claim that a product is unsafe.
 
-Place local Kroger receipt PDFs in the plugin checkout:
+Place the Kroger purchase history export at `receipts/purchase-history.json`.
+When the root `receipts/` directory does not exist, the loader uses
+`kroger_shopping/receipts/purchase-history.json` instead. An existing root
+directory takes precedence even when empty.
 
-```text
-receipts/*.pdf
-```
+The JSON must contain an `orders` array. Each order uses `receiptKey` as its
+order number, `orderDate` as its purchase date, and `upcs` as an array of
+13-digit strings. Leading zeros are preserved and duplicate UPCs are removed.
+The shared cache refreshes when the file size or modification time changes.
+Malformed JSON or orders produce warnings; valid orders remain usable when
+individual orders are malformed. Keep personal purchase history local.
 
-The loader extracts exact 13-digit `UPC:` lines, deduplicates them, and refreshes
-its cache when PDF metadata changes. Invalid PDFs produce warnings while valid
-receipts continue to load. Receipt PDFs are local-only and ignored by Git.
-
-`/kroger receipts` lists the order number and order date from every local PDF,
-in filename order. It requires no credentials or API calls. Missing order details
-are shown as `Unavailable`, and unreadable PDFs are identified by filename.
-The loader uses `receipts/` at the plugin root, falling back to
-`kroger_shopping/receipts/` when the root directory does not exist.
-This command accepts no arguments and is available only through `/kroger`.
-For example (illustrative order numbers):
-
-```text
-/kroger receipts
-- Order number: 1234567890123456789 | Order date: May 13, 2026
-- Order number: 1234567890123456790 | Order date: May 18, 2026
-```
-
-An empty directory returns `No local receipt PDFs found.` The root directory takes
-precedence even when empty; the fallback is used only when it does not exist.
+`/kroger receipts` lists order numbers and dates in export order without
+credentials or API calls. Missing details appear as `Unavailable`; unreadable
+history is identified by filename. Missing or empty history returns
+`No local purchase history found.` This command accepts no arguments and is
+available only through `/kroger`.
 
 `/kroger buyagain` lists every distinct purchased UPC from the same local receipt
 cache used by `recommend`, sorted by UPC, with current Kroger catalog names.
@@ -267,10 +258,10 @@ Previously purchased products: 1
 - Simple Truth Organic® Lactose Free Vitamin D Whole Milk Half Gallon | UPC: `0001111050434`
 ```
 
-Purchase dates come from `Order Date:` fields in PDF text, using the latest valid
-date across receipts containing each UPC. Supported date formats are
-`Month D, YYYY` and `YYYY-MM-DD`; PDF filenames and file modification times are
-not purchase dates. For example, recommendation metadata can include:
+Purchase dates come from each order's `orderDate`, using the latest valid date
+across orders containing each UPC. Supported formats are `YYYY-MM-DD` and
+`Month D, YYYY`. Export timestamps, receipt keys, and file modification times
+are not purchase dates. Recommendation metadata can include:
 
 ```text
 purchased: yes | last bought: 2026-05-31
@@ -331,7 +322,7 @@ are `load_receipt_history()`, `load_purchase_upcs()`, and
 - `kroger_shopping/parsers.py` — Kroger response-to-model mapping
 - `kroger_shopping/recommendations.py` — ingredient matching and ranking
 - `kroger_shopping/unit_pricing.py` — size parsing and comparable unit prices
-- `kroger_shopping/receipts.py` — local PDF order metadata, UPC extraction, latest purchase dates, and caching
+- `kroger_shopping/receipts.py` — local JSON order metadata, UPC ingestion, latest purchase dates, and caching
 - `kroger_shopping/auth.py` — OAuth requests, refresh, and token persistence
 - `kroger_shopping/client.py` — public API facade, HTTP handling, and auth retry
 - `kroger_shopping/hermes_command.py` — current direct `/kroger` presentation

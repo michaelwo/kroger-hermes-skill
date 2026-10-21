@@ -342,25 +342,25 @@ def test_receipts_through_adapters(monkeypatch, dispatch_kroger):
     from kroger_shopping import hermes_command, receipts
 
     history = (
-        ReceiptHistoryEntry("z.pdf", frozenset({"0001111050434"}), True,
+        ReceiptHistoryEntry("z.json", frozenset({"0001111050434"}), True,
                             "1261107276344089802", "April 21, 2026"),
-        ReceiptHistoryEntry("a.pdf", frozenset(), True,
+        ReceiptHistoryEntry("a.json", frozenset(), True,
                             "021~00998~2026-05-13~515~491117", "May 13, 2026"),
-        ReceiptHistoryEntry("bad.pdf", frozenset(), False),
-        ReceiptHistoryEntry("empty.pdf", frozenset(), True),
+        ReceiptHistoryEntry("bad.json", frozenset(), False),
+        ReceiptHistoryEntry("empty.json", frozenset(), True),
     )
     monkeypatch.setattr(receipts, "load_receipt_history", lambda: history)
     factory = Mock(side_effect=AssertionError("client created"))
     monkeypatch.setattr(hermes_command, "get_client", factory)
     assert dispatch_kroger("receipts") == (
         "- Order number: 021~00998~2026-05-13~515~491117 | Order date: May 13, 2026\n"
-        "- bad.pdf: Unreadable receipt.\n"
-        "- Order number: Unavailable | Order date: Unavailable (empty.pdf)\n"
+        "- bad.json: Unreadable receipt.\n"
+        "- Order number: Unavailable | Order date: Unavailable (empty.json)\n"
         "- Order number: 1261107276344089802 | Order date: April 21, 2026"
     )
     assert dispatch_kroger("receipts extra") == "Usage: /kroger receipts"
     monkeypatch.setattr(receipts, "load_receipt_history", lambda: ())
-    assert dispatch_kroger("receipts") == "No local receipt PDFs found."
+    assert dispatch_kroger("receipts") == "No local purchase history found."
     factory.assert_not_called()
 
 
@@ -371,8 +371,8 @@ def test_buyagain_uses_recommendation_cache(monkeypatch, dispatch_kroger, failur
 
     first, second = "0001111050434", "0001111050435"
     monkeypatch.setattr(receipts, "load_receipt_history", lambda directory: (
-        ReceiptHistoryEntry("a.pdf", frozenset({first, second}), True),
-        ReceiptHistoryEntry("b.pdf", frozenset({first}), True),
+        ReceiptHistoryEntry("a.json", frozenset({first, second}), True),
+        ReceiptHistoryEntry("b.json", frozenset({first}), True),
     ))
     assert receipts.load_purchase_upcs() == frozenset({first, second})
 

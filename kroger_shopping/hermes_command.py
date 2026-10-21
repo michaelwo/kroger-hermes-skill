@@ -214,7 +214,7 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
 def _receipt_history_text() -> str:
     history = receipts.load_receipt_history()
     if not history:
-        return "No local receipt PDFs found."
+        return "No local purchase history found."
     lines = []
     for receipt in sorted(history, key=lambda item: item.filename):
         if not receipt.readable:

@@ -1,10 +1,9 @@
 name: kroger-shopping
-version: "2.2.3"
+version: "2.2.4"
 description: Direct Kroger commands plus conversational read-only shopping tools for Hermes
 kind: standalone
 python_dependencies:
   - "requests>=2.31,<3"
-  - "pypdf>=6,<7"
 provides_tools:
   - kroger_search
   - kroger_recommend

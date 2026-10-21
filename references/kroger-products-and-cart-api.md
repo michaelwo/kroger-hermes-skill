@@ -23,7 +23,7 @@ in `references/openapi/` are the contract source for endpoint and schema checks.
 - One product-detail failure does not abort other candidates; programmatic
   results retain a warning for the failed detail.
 - Receipt purchase history is read from exact 13-digit `UPC:` lines in
-  repository-level `receipts/*.pdf`.
+  repository-level `receipts/purchase-history.json`.
 - Previously purchased UPCs sort before unpurchased UPCs.
 - Known ingredient data sorts before unknown data; fewer matched unwanted
   ingredients sort first.

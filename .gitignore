@@ -12,6 +12,7 @@
 # Local Kroger receipt PDFs
 kroger_shopping/receipts/*.pdf
 receipts/*.pdf
+receipts/*.json
 
 # Python bytecode and caches
 __pycache__/
@@ -53,3 +54,7 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Local purchase history exports
+receipts/purchase-history.json
+kroger_shopping/receipts/purchase-history.json
