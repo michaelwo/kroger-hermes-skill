@@ -35,6 +35,7 @@ def _build_parser() -> argparse.ArgumentParser:
     add.add_argument("--modality", default=CartModality.PICKUP.value)
 
     subparsers.add_parser("status", help="Check Kroger user authentication status")
+    subparsers.add_parser("pull", help="Export purchase history from a logged-in CDP Chrome tab")
     return parser
 
 
@@ -45,6 +46,8 @@ def main(
     parser = _build_parser()
     try:
         args = parser.parse_args(argv)
+        if args.command == "pull":
+            return _pull()
         client = client_factory()
 
         if args.command == "search":
@@ -134,6 +137,14 @@ def _status(client: KrogerClient) -> int:
         print("Kroger user authentication is active.")
     else:
         print("Kroger user authentication is missing or expired. Run /kroger login.")
+    return 0
+
+
+def _pull() -> int:
+    from .purchase_history import pull_purchase_history
+
+    result = pull_purchase_history()
+    print(f"Wrote {result['orders']} orders to {result['path']}.")
     return 0
 
 

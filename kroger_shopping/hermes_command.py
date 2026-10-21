@@ -29,6 +29,7 @@ def help_text() -> str:
         "- /kroger recommend <term> (shortcut: -r)\n"
         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
         "- /kroger receipts\n"
+        "- /kroger pull\n"
         "- /kroger buyagain\n"
         "- /kroger version\n"
         "- /kroger login\n"
@@ -76,6 +77,11 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         if args:
             return "Usage: /kroger receipts"
         return _receipt_history_text()
+
+    if subcommand == "pull":
+        if args:
+            return "Usage: /kroger pull"
+        return _pull_purchase_history_text()
 
     if subcommand == "search":
         if not args:
@@ -209,6 +215,19 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         return "Kroger user authentication cleared."
 
     return f"Unknown subcommand: {subcommand}\n{help_text()}"
+
+
+def _pull_purchase_history_text() -> str:
+    from .purchase_history import CdpError, pull_purchase_history
+
+    try:
+        result = pull_purchase_history()
+    except CdpError as exc:
+        return str(exc)
+    return (
+        f"Wrote {result['orders']} orders to `{result['path']}`.\n"
+        "Open `/kroger receipts` to list them."
+    )
 
 
 def _receipt_history_text() -> str:

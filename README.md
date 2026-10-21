@@ -226,6 +226,13 @@ When the root `receipts/` directory does not exist, the loader uses
 `kroger_shopping/receipts/purchase-history.json` instead. An existing root
 directory takes precedence even when empty.
 
+`/kroger pull` overwrites that JSON from a Chrome tab already signed in on
+Purchase History (`https://www.kroger.com/mypurchases`) with remote debugging
+on `127.0.0.1:9222`. It does not type credentials, export cookies, or call the
+developer API. The command accepts no arguments. Equivalent CLI:
+`python -m kroger_shopping pull`. If DevTools is down or the tab is missing, it
+prints a short error and does not write a file.
+
 The JSON must contain an `orders` array. Each order uses `receiptKey` as its
 order number, `orderDate` as its purchase date, and `upcs` as an array of
 13-digit strings. Leading zeros are preserved and duplicate UPCs are removed.

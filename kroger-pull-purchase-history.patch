@@ -1,0 +1,510 @@
+From d8bc488f452b7cb31a05b0a0bb2f8bb25e98939d Mon Sep 17 00:00:00 2001
+From: Michael Wojciechowski <michaelwojciechowski@Atlantean.local>
+Date: Wed, 21 Oct 2026 14:26:17 -0400
+Subject: [PATCH] feat: add /kroger pull to export purchase-history.json via
+ CDP
+
+Attach to a logged-in kroger.com/mypurchases Chrome tab on 127.0.0.1:9222
+and overwrite local JSON history. No credentials, cookies, or agent tool.
+---
+ README.md                           |   7 +
+ __init__.py                         |   2 +-
+ kroger_shopping/cli.py              |  11 ++
+ kroger_shopping/hermes_command.py   |  19 ++
+ kroger_shopping/purchase_history.py | 280 ++++++++++++++++++++++++++++
+ skills/shopping-assistant/SKILL.md  |   7 +-
+ tests/test_purchase_history.py      |  66 +++++++
+ 7 files changed, 388 insertions(+), 4 deletions(-)
+ create mode 100644 kroger_shopping/purchase_history.py
+ create mode 100644 tests/test_purchase_history.py
+
+diff --git a/README.md b/README.md
+index c1aa3c9..73bd132 100644
+--- a/README.md
++++ b/README.md
+@@ -226,6 +226,13 @@ When the root `receipts/` directory does not exist, the loader uses
+ `kroger_shopping/receipts/purchase-history.json` instead. An existing root
+ directory takes precedence even when empty.
+ 
++`/kroger pull` overwrites that JSON from a Chrome tab already signed in on
++Purchase History (`https://www.kroger.com/mypurchases`) with remote debugging
++on `127.0.0.1:9222`. It does not type credentials, export cookies, or call the
++developer API. The command accepts no arguments. Equivalent CLI:
++`python -m kroger_shopping pull`. If DevTools is down or the tab is missing, it
++prints a short error and does not write a file.
++
+ The JSON must contain an `orders` array. Each order uses `receiptKey` as its
+ order number, `orderDate` as its purchase date, and `upcs` as an array of
+ 13-digit strings. Leading zeros are preserved and duplicate UPCs are removed.
+diff --git a/__init__.py b/__init__.py
+index acc431b..306ee2f 100644
+--- a/__init__.py
++++ b/__init__.py
+@@ -19,7 +19,7 @@ def register(ctx):
+         "kroger",
+         handle_kroger,
+         description="Search, recommend, and add Kroger products",
+-        args_hint="<search|recommend|add|receipts|buyagain|version|login|code|status|logout|-s|-r|-a|-h> [args]",
++        args_hint="<search|recommend|add|receipts|pull|buyagain|version|login|code|status|logout|-s|-r|-a|-h> [args]",
+     )
+     ctx.register_tool(
+         name="kroger_search",
+diff --git a/kroger_shopping/cli.py b/kroger_shopping/cli.py
+index 22282e0..fd6fae7 100644
+--- a/kroger_shopping/cli.py
++++ b/kroger_shopping/cli.py
+@@ -35,6 +35,7 @@ def _build_parser() -> argparse.ArgumentParser:
+     add.add_argument("--modality", default=CartModality.PICKUP.value)
+ 
+     subparsers.add_parser("status", help="Check Kroger user authentication status")
++    subparsers.add_parser("pull", help="Export purchase history from a logged-in CDP Chrome tab")
+     return parser
+ 
+ 
+@@ -45,6 +46,8 @@ def main(
+     parser = _build_parser()
+     try:
+         args = parser.parse_args(argv)
++        if args.command == "pull":
++            return _pull()
+         client = client_factory()
+ 
+         if args.command == "search":
+@@ -137,6 +140,14 @@ def _status(client: KrogerClient) -> int:
+     return 0
+ 
+ 
++def _pull() -> int:
++    from .purchase_history import pull_purchase_history
++
++    result = pull_purchase_history()
++    print(f"Wrote {result['orders']} orders to {result['path']}.")
++    return 0
++
++
+ def _format_product_line(description: str, brand: Optional[str], price: Optional[float], upc: str) -> str:
+     brand_text = f" - {brand}" if brand else ""
+     return f"{description}{brand_text} | {_format_price(price)} | {upc}"
+diff --git a/kroger_shopping/hermes_command.py b/kroger_shopping/hermes_command.py
+index 514e30b..a4d9827 100644
+--- a/kroger_shopping/hermes_command.py
++++ b/kroger_shopping/hermes_command.py
+@@ -29,6 +29,7 @@ def help_text() -> str:
+         "- /kroger recommend <term> (shortcut: -r)\n"
+         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
+         "- /kroger receipts\n"
++        "- /kroger pull\n"
+         "- /kroger buyagain\n"
+         "- /kroger version\n"
+         "- /kroger login\n"
+@@ -77,6 +78,11 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
+             return "Usage: /kroger receipts"
+         return _receipt_history_text()
+ 
++    if subcommand == "pull":
++        if args:
++            return "Usage: /kroger pull"
++        return _pull_purchase_history_text()
++
+     if subcommand == "search":
+         if not args:
+             return "Usage: /kroger search <term>"
+@@ -211,6 +217,19 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
+     return f"Unknown subcommand: {subcommand}\n{help_text()}"
+ 
+ 
++def _pull_purchase_history_text() -> str:
++    from .purchase_history import CdpError, pull_purchase_history
++
++    try:
++        result = pull_purchase_history()
++    except CdpError as exc:
++        return str(exc)
++    return (
++        f"Wrote {result['orders']} orders to `{result['path']}`.\n"
++        "Open `/kroger receipts` to list them."
++    )
++
++
+ def _receipt_history_text() -> str:
+     history = receipts.load_receipt_history()
+     if not history:
+diff --git a/kroger_shopping/purchase_history.py b/kroger_shopping/purchase_history.py
+new file mode 100644
+index 0000000..549ae40
+--- /dev/null
++++ b/kroger_shopping/purchase_history.py
+@@ -0,0 +1,280 @@
++"""Export Kroger purchase history from a logged-in CDP Chrome tab."""
++
++from __future__ import annotations
++
++import base64
++import hashlib
++import json
++import os
++import socket
++import struct
++import urllib.error
++import urllib.request
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any
++from urllib.parse import urlparse
++
++from .exceptions import KrogerError
++from .receipts import DEFAULT_RECEIPTS_DIR, PURCHASE_HISTORY_FILENAME
++
++SEARCH_URL = "https://www.kroger.com/atlas/v1/post-order/v1/purchase-history-search"
++PAGE_SIZE = 10
++DEFAULT_CDP_HOST = "127.0.0.1"
++DEFAULT_CDP_PORT = 9222
++
++
++class CdpError(KrogerError):
++    """Raised when Chrome DevTools Protocol is missing or the tab is unusable."""
++
++
++def pull_purchase_history(
++    receipts_dir: Path | None = None,
++    host: str | None = None,
++    port: int | None = None,
++) -> dict[str, Any]:
++    """Fetch purchase history via CDP and write purchase-history.json."""
++    host = host or os.environ.get("CDP_HOST", DEFAULT_CDP_HOST)
++    port = int(os.environ.get("CDP_PORT", port or DEFAULT_CDP_PORT))
++    directory = Path(receipts_dir) if receipts_dir is not None else DEFAULT_RECEIPTS_DIR
++    version = _cdp_json(host, port, "/json/version")
++    if not isinstance(version, dict) or not version.get("webSocketDebuggerUrl"):
++        raise CdpError("Chrome DevTools is not answering on this port.")
++    targets = _cdp_json(host, port, "/json/list")
++    if not isinstance(targets, list):
++        raise CdpError("Chrome DevTools target list is unreadable.")
++    page = next(
++        (
++            target
++            for target in targets
++            if target.get("type") == "page"
++            and "kroger.com/mypurchases" in str(target.get("url") or "")
++        ),
++        None,
++    )
++    if page is None:
++        raise CdpError(
++            "No kroger.com/mypurchases tab. Open Purchase History in the CDP browser while logged in."
++        )
++    ws_url = page.get("webSocketDebuggerUrl")
++    if not ws_url:
++        raise CdpError("Purchase History tab has no DevTools websocket.")
++    raw = _evaluate(ws_url, _history_expression())
++    parsed = json.loads(raw)
++    if parsed.get("error"):
++        raise CdpError("Kroger purchase-history-search failed.")
++    orders = [normalize_order(order) for order in parsed.get("orders") or []]
++    payload = {
++        "source": "kroger-atlas-purchase-history-search",
++        "fetchedAt": datetime.now(timezone.utc).isoformat(),
++        "pageTotal": parsed.get("pageTotal"),
++        "orders": orders,
++    }
++    directory.mkdir(parents=True, exist_ok=True)
++    path = directory / PURCHASE_HISTORY_FILENAME
++    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
++    return {"path": path, "orders": len(orders), "pageTotal": parsed.get("pageTotal")}
++
++
++def unique_upcs(order: dict[str, Any]) -> list[str]:
++    seen: set[str] = set()
++    upcs: list[str] = []
++    for item in order.get("lineItems") or []:
++        if not isinstance(item, dict):
++            continue
++        upc = str(item.get("upc") or "")
++        if len(upc) == 13 and upc.isdigit() and upc not in seen:
++            seen.add(upc)
++            upcs.append(upc)
++    return upcs
++
++
++def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
++    created = ""
++    created_obj = order.get("createdDateTime")
++    if isinstance(created_obj, dict):
++        created = str(created_obj.get("value") or "")
++    elif isinstance(created_obj, str):
++        created = created_obj
++    return {
++        "receiptKey": order.get("receiptKey"),
++        "orderDate": created[:10] or None,
++        "createdDateTime": created or None,
++        "purchaseType": order.get("purchaseType"),
++        "total": order.get("total"),
++        "status": order.get("status"),
++        "handoffStoreId": order.get("handoffStoreId"),
++        "fulfillmentPartner": order.get("fulfillmentPartner"),
++        "upcs": unique_upcs(order),
++    }
++
++
++def _history_expression() -> str:
++    search = json.dumps(SEARCH_URL)
++    return f"""(async () => {{
++    const search = {search};
++    const first = await (await fetch(search + '?pageNo=1&pageSize={PAGE_SIZE}', {{credentials:'include'}})).json();
++    const root = first?.data?.postOrderSearch;
++    if (!root) return JSON.stringify({{error: first}});
++    const total = root.pageTotal || 1;
++    const all = (root.data || []).slice();
++    for (let p = 2; p <= total; p++) {{
++      const j = await (await fetch(search + '?pageNo=' + p + '&pageSize={PAGE_SIZE}', {{credentials:'include'}})).json();
++      all.push(...(j?.data?.postOrderSearch?.data || []));
++    }}
++    return JSON.stringify({{pageTotal: total, count: all.length, orders: all}});
++  }})()"""
++
++
++def _cdp_json(host: str, port: int, path: str) -> Any:
++    url = f"http://{host}:{port}{path}"
++    try:
++        with urllib.request.urlopen(url, timeout=5) as response:
++            body = response.read().decode("utf-8")
++    except (urllib.error.URLError, TimeoutError, OSError) as exc:
++        raise CdpError(
++            f"Chrome DevTools is not reachable at {host}:{port}."
++        ) from exc
++    try:
++        return json.loads(body)
++    except json.JSONDecodeError as exc:
++        raise CdpError("Chrome DevTools returned a non-JSON body.") from exc
++
++
++def _evaluate(ws_url: str, expression: str) -> str:
++    sock = _ws_connect(ws_url)
++    try:
++        _ws_send(sock, json.dumps({
++            "id": 1,
++            "method": "Runtime.evaluate",
++            "params": {
++                "expression": expression,
++                "awaitPromise": True,
++                "returnByValue": True,
++            },
++        }))
++        while True:
++            message = json.loads(_ws_recv(sock))
++            if message.get("id") != 1:
++                continue
++            if message.get("error"):
++                raise CdpError("DevTools evaluate failed.")
++            result = message.get("result") or {}
++            if result.get("exceptionDetails"):
++                raise CdpError("Purchase history fetch failed in the browser tab.")
++            value = (result.get("result") or {}).get("value")
++            if not isinstance(value, str):
++                raise CdpError("Purchase history response was not JSON text.")
++            return value
++    finally:
++        sock.close()
++
++
++def _ws_connect(ws_url: str) -> _BufferedSocket:
++    parsed = urlparse(ws_url)
++    host = parsed.hostname or DEFAULT_CDP_HOST
++    port = parsed.port or DEFAULT_CDP_PORT
++    path = parsed.path or "/"
++    if parsed.query:
++        path = f"{path}?{parsed.query}"
++    sock = socket.create_connection((host, port), timeout=20)
++    key = base64.b64encode(os.urandom(16)).decode("ascii")
++    request = (
++        f"GET {path} HTTP/1.1\r\n"
++        f"Host: {host}:{port}\r\n"
++        "Upgrade: websocket\r\n"
++        "Connection: Upgrade\r\n"
++        f"Sec-WebSocket-Key: {key}\r\n"
++        "Sec-WebSocket-Version: 13\r\n"
++        "\r\n"
++    )
++    sock.sendall(request.encode("ascii"))
++    buffer = b""
++    while b"\r\n\r\n" not in buffer:
++        chunk = sock.recv(4096)
++        if not chunk:
++            sock.close()
++            raise CdpError("Chrome closed the DevTools handshake.")
++        buffer += chunk
++    header, _, rest = buffer.partition(b"\r\n\r\n")
++    status = header.split(b"\r\n", 1)[0]
++    if b"101" not in status:
++        sock.close()
++        raise CdpError("Chrome rejected the DevTools websocket.")
++    expected = base64.b64encode(
++        hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
++    )
++    if expected not in header:
++        sock.close()
++        raise CdpError("Chrome DevTools websocket handshake failed.")
++    return _BufferedSocket(sock, rest)
++
++
++def _ws_send(sock: Any, payload: str) -> None:
++    data = payload.encode("utf-8")
++    mask = os.urandom(4)
++    header = bytearray([0x81])
++    length = len(data)
++    if length < 126:
++        header.append(0x80 | length)
++    elif length < 65536:
++        header.append(0x80 | 126)
++        header.extend(struct.pack("!H", length))
++    else:
++        header.append(0x80 | 127)
++        header.extend(struct.pack("!Q", length))
++    header.extend(mask)
++    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
++    sock.sendall(header + masked)
++
++
++def _ws_recv(sock: Any) -> str:
++    chunks: list[bytes] = []
++    while True:
++        first = _recvexact(sock, 2)
++        opcode = first[0] & 0x0F
++        masked = bool(first[1] & 0x80)
++        length = first[1] & 0x7F
++        if length == 126:
++            length = struct.unpack("!H", _recvexact(sock, 2))[0]
++        elif length == 127:
++            length = struct.unpack("!Q", _recvexact(sock, 8))[0]
++        mask = _recvexact(sock, 4) if masked else b""
++        payload = _recvexact(sock, length)
++        if masked:
++            payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
++        if opcode == 0x8:
++            raise CdpError("Chrome closed the DevTools websocket.")
++        if opcode == 0x1 or opcode == 0x0:
++            chunks.append(payload)
++            if first[0] & 0x80:
++                return b"".join(chunks).decode("utf-8")
++        # ignore ping/pong/binary
++
++
++class _BufferedSocket:
++    def __init__(self, sock: socket.socket, extra: bytes = b"") -> None:
++        self.sock = sock
++        self.buf = extra
++
++    def recv(self, size: int) -> bytes:
++        if self.buf:
++            take, self.buf = self.buf[:size], self.buf[size:]
++            return take
++        return self.sock.recv(size)
++
++    def sendall(self, data: bytes) -> None:
++        self.sock.sendall(data)
++
++    def close(self) -> None:
++        self.sock.close()
++
++
++def _recvexact(sock: Any, size: int) -> bytes:
++    chunks = bytearray()
++    while len(chunks) < size:
++        piece = sock.recv(size - len(chunks))
++        if not piece:
++            raise CdpError("Chrome closed the DevTools websocket.")
++        chunks.extend(piece)
++    return bytes(chunks)
+diff --git a/skills/shopping-assistant/SKILL.md b/skills/shopping-assistant/SKILL.md
+index dd5fbb9..c9045e8 100644
+--- a/skills/shopping-assistant/SKILL.md
++++ b/skills/shopping-assistant/SKILL.md
+@@ -23,9 +23,10 @@ it from result order or invent one.
+ 
+ For requests to inspect all receipts or previously purchased products, direct the
+ user to `/kroger receipts` (order numbers and dates) or `/kroger buyagain`
+-(distinct UPCs with catalog names). These are user-run commands, accept no
+-arguments, and have no corresponding agent tools. `buyagain` lists products;
+-it does not modify the cart.
++(distinct UPCs with catalog names). To refresh local history from a logged-in
++CDP Purchase History tab, direct them to `/kroger pull`. These are user-run
++commands, accept no arguments, and have no corresponding agent tools. `buyagain`
++lists products; it does not modify the cart.
+ 
+ Keep internal ranking mechanics out of the response. Do not describe Kroger result-order points, preference bonuses, nutrition-data availability bonuses, or an aggregate score.
+ 
+diff --git a/tests/test_purchase_history.py b/tests/test_purchase_history.py
+new file mode 100644
+index 0000000..0b0e41e
+--- /dev/null
++++ b/tests/test_purchase_history.py
+@@ -0,0 +1,66 @@
++from pathlib import Path
++from unittest.mock import Mock
++
++from kroger_shopping.hermes_command import handle_kroger
++from kroger_shopping.purchase_history import CdpError, normalize_order, unique_upcs
++
++
++def test_unique_upcs_keep_thirteen_digit_order():
++    order = {
++        "lineItems": [
++            {"upc": "0001111050434"},
++            {"upc": "0001111050434"},
++            {"upc": "123"},
++            {"upc": "0001111050435"},
++            "nope",
++        ]
++    }
++    assert unique_upcs(order) == ["0001111050434", "0001111050435"]
++
++
++def test_normalize_order_uses_created_date_prefix():
++    order = normalize_order({
++        "receiptKey": "540~00013~2026-10-20~1460~1",
++        "createdDateTime": {"value": "2026-10-21T00:21:17Z"},
++        "purchaseType": "DELIVERY",
++        "total": "USD 1.00",
++        "status": "COMPLETED",
++        "handoffStoreId": "54000013",
++        "lineItems": [{"upc": "0001111050434"}],
++    })
++    assert order["orderDate"] == "2026-10-21"
++    assert order["upcs"] == ["0001111050434"]
++    assert order["receiptKey"].startswith("540~")
++
++
++def test_pull_command_writes_summary(monkeypatch, tmp_path):
++    from kroger_shopping import hermes_command, purchase_history
++
++    path = tmp_path / "purchase-history.json"
++    monkeypatch.setattr(
++        purchase_history,
++        "pull_purchase_history",
++        lambda: {"path": path, "orders": 65, "pageTotal": 7},
++    )
++    monkeypatch.setattr(
++        hermes_command,
++        "get_client",
++        Mock(side_effect=AssertionError("client created")),
++    )
++    output = handle_kroger("pull")
++    assert output.startswith("Wrote 65 orders to `")
++    assert str(path) in output
++    assert "/kroger receipts" in output
++    assert handle_kroger("pull extra") == "Usage: /kroger pull"
++    assert "/kroger pull" in handle_kroger()
++
++
++def test_pull_command_returns_cdp_error(monkeypatch):
++    from kroger_shopping import hermes_command, purchase_history
++
++    monkeypatch.setattr(
++        purchase_history,
++        "pull_purchase_history",
++        Mock(side_effect=CdpError("Chrome DevTools is not reachable at 127.0.0.1:9222.")),
++    )
++    assert handle_kroger("pull") == "Chrome DevTools is not reachable at 127.0.0.1:9222."
+-- 
+2.47.3
+
