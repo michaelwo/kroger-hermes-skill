@@ -72,3 +72,17 @@ def test_last_purchase_dates_choose_latest_valid_order_date(monkeypatch):
         entry("bad.json", frozenset({"a"}), False, order_date="January 1, 2028"),
     ))
     assert receipts.load_last_purchase_dates() == {"a": "2026-02-03", "b": "2025-12-31"}
+
+
+def test_local_names_choose_latest_and_tolerate_legacy_exports(tmp_path):
+    upc = "0001111050434"
+    write_history(tmp_path, [
+        {"upcs": [upc], "orderDate": "2026-10-21", "productNames": {upc: "New name"}},
+        {"upcs": [upc], "orderDate": "2026-01-01", "productNames": {upc: "Old name"}},
+        {"upcs": [upc]},
+        {"upcs": [upc], "productNames": ["bad"]},
+        {"upcs": [upc], "productNames": {upc: None, "0001111050435": "Not purchased"}},
+    ])
+    assert receipts.load_purchase_names(tmp_path) == {upc: "New name"}
+    write_history(tmp_path, [{"upcs": [upc], "productNames": {upc: "Changed"}}])
+    assert receipts.load_purchase_names(tmp_path) == {upc: "Changed"}

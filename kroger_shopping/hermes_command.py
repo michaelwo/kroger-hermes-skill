@@ -253,23 +253,10 @@ def _buy_again_text() -> str:
     if not upcs:
         return "No purchased UPCs found in local receipts."
 
-    names = {}
-    try:
-        client = get_client()
-    except Exception:
-        client = None
-    if client is not None:
-        for upc in upcs:
-            try:
-                product = client.get_product_detail(upc)
-                if product and product.description:
-                    names[upc] = product.description
-            except Exception:
-                # Preserve the cached UPC even when its catalog lookup fails.
-                continue
+    names = receipts.load_purchase_names()
 
     lines = [f"Previously purchased products: {len(upcs)}"]
     if len(names) != len(upcs):
-        lines.append("Some product names could not be retrieved from Kroger.")
+        lines.append("Some product names are missing from local history. Run /kroger pull to refresh.")
     lines.extend(f"- {names.get(upc, 'Name unavailable')} | UPC: `{upc}`" for upc in upcs)
     return "\n".join(lines)

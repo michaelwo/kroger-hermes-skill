@@ -108,8 +108,9 @@ Additional constraints:
   use an ISO date or None/null. Direct and CLI output adds
   `last bought: YYYY-MM-DD` when known; missing dates retain `purchased: yes`.
 - `/kroger receipts` lists order numbers and dates without constructing a client.
-  `/kroger buyagain` lists every distinct UPC with a catalog name, retaining UPCs
-  when configuration or individual lookups fail. Neither modifies the cart.
+  `/kroger buyagain` lists every distinct UPC with a locally exported name, retaining UPCs
+  when names are missing. Buy-again must not construct a client or make catalog
+  requests; `/kroger pull` saves line-item names in `productNames`. Neither modifies the cart.
   Both reject extra arguments and are unavailable as module CLI or agent tools.
 
 ## Verification

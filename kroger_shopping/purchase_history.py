@@ -89,6 +89,24 @@ def unique_upcs(order: dict[str, Any]) -> list[str]:
     return upcs
 
 
+def product_names(order: dict[str, Any]) -> dict[str, str]:
+    """Keep names supplied by purchase history, without catalog requests."""
+    valid_upcs = set(unique_upcs(order))
+    names = {}
+    for item in order.get("lineItems") or []:
+        if not isinstance(item, dict):
+            continue
+        upc = str(item.get("upc") or "")
+        if upc not in valid_upcs:
+            continue
+        for key in ("description", "productName", "name"):
+            name = item.get(key)
+            if isinstance(name, str) and name.strip():
+                names.setdefault(upc, " ".join(name.split()))
+                break
+    return names
+
+
 def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
     created = ""
     created_obj = order.get("createdDateTime")
@@ -106,6 +124,7 @@ def normalize_order(order: dict[str, Any]) -> dict[str, Any]:
         "handoffStoreId": order.get("handoffStoreId"),
         "fulfillmentPartner": order.get("fulfillmentPartner"),
         "upcs": unique_upcs(order),
+        "productNames": product_names(order),
     }
 
 

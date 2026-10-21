@@ -364,50 +364,31 @@ def test_receipts_through_adapters(monkeypatch, dispatch_kroger):
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", [None, "missing", "blank", "lookup", "credentials"])
-def test_buyagain_uses_recommendation_cache(monkeypatch, dispatch_kroger, failure):
-    from types import SimpleNamespace
+@pytest.mark.parametrize("missing_name", [False, True])
+def test_buyagain_uses_local_names_without_client(monkeypatch, dispatch_kroger, missing_name):
     from kroger_shopping import hermes_command, receipts
 
     first, second = "0001111050434", "0001111050435"
     monkeypatch.setattr(receipts, "load_receipt_history", lambda directory: (
-        ReceiptHistoryEntry("a.json", frozenset({first, second}), True),
-        ReceiptHistoryEntry("b.json", frozenset({first}), True),
+        ReceiptHistoryEntry("history.json", frozenset({first, second}), True,
+                            product_names=((first, "Milk"),) if missing_name else
+                            ((first, "Milk"), (second, "Bread"))),
+        ReceiptHistoryEntry("history.json", frozenset({first}), True),
     ))
-    assert receipts.load_purchase_upcs() == frozenset({first, second})
-
-    def lookup(upc):
-        if upc == second:
-            if failure == "lookup":
-                raise RuntimeError("private HTTP details")
-            if failure == "missing":
-                return None
-            if failure == "blank":
-                return SimpleNamespace(description="")
-        return SimpleNamespace(description="Milk" if upc == first else "Bread")
-
-    client = Mock()
-    client.get_product_detail.side_effect = lookup
-    factory = Mock(return_value=client)
-    if failure == "credentials":
-        factory.side_effect = ValueError("private credentials")
+    factory = Mock(side_effect=AssertionError("No catalog client needed"))
     monkeypatch.setattr(hermes_command, "get_client", factory)
     output = dispatch_kroger("buyagain")
     assert output.startswith("Previously purchased products: 2\n")
     assert output.count(first) == output.count(second) == 1
     assert output.index(first) < output.index(second)
-    assert "private" not in output
-    if failure:
+    assert "Milk" in output
+    if missing_name:
         assert "Name unavailable" in output
-        assert "Some product names could not be retrieved" in output
+        assert "Run /kroger pull" in output
     else:
-        assert output == (
-            f"Previously purchased products: 2\n"
-            f"- Milk | UPC: `{first}`\n- Bread | UPC: `{second}`"
-        )
-    if failure != "credentials":
-        assert [call.args[0] for call in client.get_product_detail.call_args_list] == [first, second]
-    client.add_to_cart.assert_not_called()
+        assert "Bread" in output
+        assert "Name unavailable" not in output
+    factory.assert_not_called()
 
 
 def test_buyagain_empty_and_usage_remain_lazy(monkeypatch, dispatch_kroger):

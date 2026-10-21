@@ -21,6 +21,7 @@ class ReceiptHistoryEntry:
     readable: bool
     order_number: str | None = None
     order_date: str | None = None
+    product_names: tuple[tuple[str, str], ...] = ()
 
 
 def load_receipt_history(
@@ -39,6 +40,24 @@ def load_receipt_history(
 def load_purchase_upcs(receipts_dir: Path = DEFAULT_RECEIPTS_DIR) -> frozenset[str]:
     """Load the distinct purchased UPCs from the shared receipt history."""
     return frozenset(upc for receipt in load_receipt_history(receipts_dir) for upc in receipt.upcs)
+
+
+def load_purchase_names(receipts_dir: Path = DEFAULT_RECEIPTS_DIR) -> dict[str, str]:
+    """Return locally exported names, preferring the latest dated order."""
+    names = {}
+    dates = {}
+    for receipt in load_receipt_history(receipts_dir):
+        if not receipt.readable:
+            continue
+        try:
+            order_date = datetime.strptime(receipt.order_date or "", "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            order_date = ""
+        for upc, name in receipt.product_names:
+            if upc not in names or order_date > dates[upc]:
+                names[upc] = name
+                dates[upc] = order_date
+    return names
 
 
 def load_last_purchase_dates(
@@ -106,10 +125,16 @@ def _load_receipt_history_cached(
         )
         number = order.get("receiptKey")
         date = order.get("orderDate")
+        raw_names = order.get("productNames")
+        names = tuple(
+            (upc, " ".join(name.split())) for upc, name in raw_names.items()
+            if upc in upcs and isinstance(name, str) and name.strip()
+        ) if isinstance(raw_names, dict) else ()
         history.append(ReceiptHistoryEntry(
             filename, upcs, True,
             number if isinstance(number, str) and number.strip() else None,
             date if isinstance(date, str) and date.strip() else None,
+            names,
         ))
     return tuple(history)
 

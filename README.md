@@ -247,16 +247,15 @@ history is identified by filename. Missing or empty history returns
 available only through `/kroger`.
 
 `/kroger buyagain` lists every distinct purchased UPC from the same local receipt
-cache used by `recommend`, sorted by UPC, with current Kroger catalog names.
-Each UPC appears once, even when purchased on multiple receipts. Missing names
-or failed lookups show `Name unavailable` while retaining the UPC. Empty history
-requires no credentials. The command accepts no arguments and only lists products;
-use `/kroger add <UPC> [quantity]` to add an item to your cart.
-It reads current history, refreshing after receipt metadata changes, and shows all
-recognized UPCs without truncation. Product names come from the current catalog;
-each distinct UPC is looked up once per command. Credential or lookup failures
-leave the list intact and produce a short notice. If no UPCs are recognized, it
-returns `No purchased UPCs found in local receipts.`
+cache used by `recommend`, sorted by UPC, with names saved by `/kroger pull`.
+The pull stores line-item names in each order's `productNames` mapping alongside
+`upcs`. Each UPC appears once, even when purchased on multiple orders; the latest
+dated order with a name takes precedence. Buy-again makes no catalog requests
+and requires no API credentials. Missing names show `Name unavailable` with a
+reminder to run `/kroger pull`; older exports containing only UPCs still work.
+The command accepts no arguments and lists all products. Use
+`/kroger add <UPC> [quantity]` to add an item to your cart. If no UPCs are recognized,
+it returns `No purchased UPCs found in local receipts.`
 
 Example with a single purchased product:
 

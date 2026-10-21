@@ -64,3 +64,42 @@ def test_pull_command_returns_cdp_error(monkeypatch):
         Mock(side_effect=CdpError("Chrome DevTools is not reachable at 127.0.0.1:9222.")),
     )
     assert handle_kroger("pull") == "Chrome DevTools is not reachable at 127.0.0.1:9222."
+
+
+def test_pull_preserves_names_for_offline_buyagain(monkeypatch, tmp_path):
+    import json
+    from kroger_shopping import hermes_command, purchase_history, receipts
+
+    upc = "0001111050434"
+    raw = {"receiptKey": "order-1", "createdDateTime": "2026-10-21T00:21:17Z",
+           "lineItems": [{"upc": upc, "description": "  Organic\nMilk  "},
+                         {"upc": upc, "description": "Duplicate"},
+                         {"upc": "123", "description": "Invalid"}]}
+    monkeypatch.setattr(purchase_history, "_cdp_json", lambda host, port, path:
+                        {"webSocketDebuggerUrl": "ws://test"} if path == "/json/version" else
+                        [{"type": "page", "url": "https://www.kroger.com/mypurchases",
+                          "webSocketDebuggerUrl": "ws://test"}])
+    monkeypatch.setattr(purchase_history, "_evaluate", lambda *args:
+                        json.dumps({"orders": [raw], "pageTotal": 1}))
+    result = purchase_history.pull_purchase_history(tmp_path)
+    payload = json.loads(result["path"].read_text())
+    assert payload["orders"][0]["productNames"] == {upc: "Organic Milk"}
+    assert receipts.load_purchase_names(tmp_path) == {upc: "Organic Milk"}
+    monkeypatch.setattr(hermes_command.receipts, "load_purchase_upcs",
+                        lambda: frozenset({upc}))
+    names = receipts.load_purchase_names(tmp_path)
+    monkeypatch.setattr(hermes_command.receipts, "load_purchase_names", lambda: names)
+    client = Mock(side_effect=AssertionError("No network"))
+    monkeypatch.setattr(hermes_command, "get_client", client)
+    assert "Organic Milk" in handle_kroger("buyagain")
+    client.assert_not_called()
+
+
+def test_product_name_fields_and_missing_names():
+    order = normalize_order({"lineItems": [
+        {"upc": "0001111050434", "productName": "Milk"},
+        {"upc": "0001111050435", "name": "Bread"},
+        {"upc": "0001111050436", "description": None},
+    ]})
+    assert order["productNames"] == {"0001111050434": "Milk", "0001111050435": "Bread"}
+    assert len(order["upcs"]) == 3
