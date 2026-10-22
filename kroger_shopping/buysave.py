@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 from urllib.parse import parse_qs, urlparse
 
 from .clipcoupon import Purchase, load_purchases
-from .purchase_history import CdpError, _cdp_json, _evaluate
+from .purchase_history import CdpError, _cdp_json, _evaluate, _ws_connect, _ws_recv, _ws_send
 from .receipts import DEFAULT_RECEIPTS_DIR
 
 SEARCH_URL = "https://www.kroger.com/atlas/v1/search/v1/products-search"
 PRODUCTS_URL = "https://www.kroger.com/atlas/v1/product/v2/products"
 PAGE_MARK = "kroger.com/pr/buy-and-save"
+PAGE_URL = "https://www.kroger.com/pr/buy-and-save"
 
 
 @dataclass(frozen=True)
@@ -98,6 +100,56 @@ def report(receipts_dir=DEFAULT_RECEIPTS_DIR) -> str:
     return format_report(event, purchases, looked.get("hits") or [], int(looked.get("failures") or 0))
 
 
+def find_buy_and_save_target(targets: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:
+    return next(
+        (
+            target for target in targets
+            if target.get("type") == "page"
+            and PAGE_MARK in str(target.get("url") or "")
+            and target.get("webSocketDebuggerUrl")
+        ),
+        None,
+    )
+
+
+def created_target_ws(targets: Sequence[Mapping[str, Any]], target_id: str) -> str | None:
+    for target in targets:
+        if target.get("id") != target_id or target.get("type") != "page":
+            continue
+        if PAGE_MARK not in str(target.get("url") or ""):
+            continue
+        ws_url = target.get("webSocketDebuggerUrl")
+        return str(ws_url) if ws_url else None
+    return None
+
+
+def _cdp_call(ws_url: str, payload: Mapping[str, Any], timeout: int = 20) -> dict:
+    sock = _ws_connect(ws_url, timeout)
+    try:
+        _ws_send(sock, json.dumps(payload))
+        while True:
+            message = json.loads(_ws_recv(sock))
+            if message.get("id") != payload.get("id"):
+                continue
+            if message.get("error"):
+                raise CdpError("Chrome rejected the new-tab request.")
+            return message
+    finally:
+        sock.close()
+
+
+def create_buy_and_save_target(browser_ws_url: str) -> str:
+    message = _cdp_call(browser_ws_url, {
+        "id": 1,
+        "method": "Target.createTarget",
+        "params": {"url": PAGE_URL},
+    })
+    target_id = (message.get("result") or {}).get("targetId")
+    if not target_id:
+        raise CdpError("Chrome did not return a tab id for Buy and Save.")
+    return str(target_id)
+
+
 def _page_ws_url() -> str:
     version = _cdp_json("127.0.0.1", 9222, "/json/version")
     if not isinstance(version, dict) or not version.get("webSocketDebuggerUrl"):
@@ -105,18 +157,64 @@ def _page_ws_url() -> str:
     targets = _cdp_json("127.0.0.1", 9222, "/json/list")
     if not isinstance(targets, list):
         raise CdpError("Chrome DevTools target list is unreadable.")
-    page = next(
-        (
-            target for target in targets
-            if target.get("type") == "page" and PAGE_MARK in str(target.get("url") or "")
-        ),
-        None,
-    )
-    if page is None or not page.get("webSocketDebuggerUrl"):
-        raise CdpError(
-            "No kroger.com/pr/buy-and-save tab. Open Buy and Save in the CDP browser while logged in."
-        )
-    return str(page["webSocketDebuggerUrl"])
+    page = find_buy_and_save_target(targets)
+    if page is not None:
+        return str(page["webSocketDebuggerUrl"])
+    target_id = create_buy_and_save_target(str(version["webSocketDebuggerUrl"]))
+    deadline = time.monotonic() + 15
+    ws_url = None
+    while time.monotonic() < deadline:
+        listed = _cdp_json("127.0.0.1", 9222, "/json/list")
+        if isinstance(listed, list):
+            ws_url = created_target_ws(listed, target_id)
+            if ws_url:
+                break
+        time.sleep(0.5)
+    if not ws_url:
+        raise CdpError("Chrome opened a tab but it did not reach Buy and Save.")
+    ready = None
+    last_error = "Buy and Save did not finish loading."
+    ready_deadline = time.monotonic() + 25
+    while time.monotonic() < ready_deadline:
+        try:
+            ready = json.loads(_evaluate(ws_url, _ready_expression(), 30))
+            break
+        except CdpError as exc:
+            last_error = str(exc)
+            time.sleep(0.5)
+    if not isinstance(ready, dict):
+        raise CdpError(last_error)
+    if ready.get("error"):
+        raise CdpError(str(ready["error"]))
+    return ws_url
+
+
+def _ready_expression() -> str:
+    return """(async () => {
+  const start = Date.now();
+  while (Date.now() - start < 20000) {
+    const href = location.href || "";
+    if (href.includes("/signin") || href.includes("/login")) {
+      return JSON.stringify({error: "Buy and Save opened a sign-in page. Sign in in the CDP browser and run /kroger buysave again."});
+    }
+    const link = [...document.querySelectorAll("a")].find(a => {
+      const text = (a.innerText || "").trim();
+      return text === "Shop All" && a.href.includes("keyword=") && a.href.includes("monet=curated");
+    });
+    const el = document.querySelector('[data-testid="KrogerHeader-SearchV2"]') || document.body;
+    const fiberKey = el && Object.keys(el).find(k => k.startsWith("__reactFiber$"));
+    let fiber = fiberKey && el[fiberKey];
+    let store = null;
+    while (fiber && !store) {
+      const props = fiber.memoizedProps || {};
+      if (props.store && props.store.getState) store = props.store;
+      fiber = fiber.return;
+    }
+    if (link && store) return JSON.stringify({ready: true});
+    await new Promise(r => setTimeout(r, 500));
+  }
+  return JSON.stringify({error: "Buy and Save did not finish loading."});
+})()"""
 
 
 def _discover_expression() -> str:

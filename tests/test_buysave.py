@@ -1,4 +1,14 @@
-from kroger_shopping.buysave import Event, format_report, pick_event, shop_all_keyword
+from kroger_shopping.buysave import (
+    PAGE_URL,
+    Event,
+    _ready_expression,
+    created_target_ws,
+    create_buy_and_save_target,
+    find_buy_and_save_target,
+    format_report,
+    pick_event,
+    shop_all_keyword,
+)
 from kroger_shopping.clipcoupon import Purchase
 
 
@@ -58,3 +68,49 @@ def test_report_sorts_by_count_then_date_and_includes_upc():
     assert body[1].startswith("2  2026-10-11  0001376402801")
     assert body[2] == "1  2026-03-28  0005410000060  Vlasic Kosher Dill Pickle Spears"
     assert "0000000000000" not in text
+
+
+def test_find_buy_and_save_target_ignores_other_kroger_tabs():
+    targets = [
+        {"type": "page", "url": "https://www.kroger.com/savings/cl/coupons/", "webSocketDebuggerUrl": "ws://coupons"},
+        {"type": "iframe", "url": "https://www.kroger.com/pr/buy-and-save", "webSocketDebuggerUrl": "ws://frame"},
+        {"type": "page", "url": "https://www.kroger.com/pr/buy-and-save", "webSocketDebuggerUrl": "ws://sale"},
+    ]
+    found = find_buy_and_save_target(targets)
+    assert found is not None
+    assert found["webSocketDebuggerUrl"] == "ws://sale"
+    assert find_buy_and_save_target(targets[:1]) is None
+    assert PAGE_URL == "https://www.kroger.com/pr/buy-and-save"
+
+
+def test_create_target_sends_the_buy_and_save_url_and_returns_the_id(monkeypatch):
+    sent = {}
+
+    def fake_send(ws_url, payload):
+        sent["ws_url"] = ws_url
+        sent["payload"] = payload
+        return {"id": 1, "result": {"targetId": "NEW"}}
+
+    monkeypatch.setattr("kroger_shopping.buysave._cdp_call", fake_send)
+    assert create_buy_and_save_target("ws://browser") == "NEW"
+    assert sent["ws_url"] == "ws://browser"
+    assert sent["payload"]["method"] == "Target.createTarget"
+    assert sent["payload"]["params"] == {"url": "https://www.kroger.com/pr/buy-and-save"}
+
+
+def test_created_target_is_not_ready_until_it_is_a_page_on_the_sale_url():
+    targets = [
+        {"id": "NEW", "type": "page", "url": "about:blank", "webSocketDebuggerUrl": "ws://blank"},
+        {"id": "OTHER", "type": "page", "url": "https://www.kroger.com/pr/buy-and-save", "webSocketDebuggerUrl": "ws://other"},
+    ]
+    assert created_target_ws(targets, "NEW") is None
+    targets[0]["url"] = "https://www.kroger.com/pr/buy-and-save?x=1"
+    assert created_target_ws(targets, "NEW") == "ws://blank"
+
+
+def test_ready_expression_accepts_only_the_curated_shop_all_link():
+    expression = _ready_expression()
+    assert "Shop All" in expression
+    assert "monet=curated" in expression
+    assert "keyword=" in expression
+    assert "/signin" in expression
