@@ -24,7 +24,9 @@ The `/oauth2/` segment is required. Shorter `/connect/authorize` and
 
 ## Configuration
 
-- `KROGER_CLIENT_ID` and `KROGER_CLIENT_SECRET` are required.
+- `KROGER_CLIENT_ID` and `KROGER_CLIENT_SECRET` are required for developer API
+  operations. Local `receipts`, `buyagain`, and `version` commands need no
+  credentials. Pull uses a signed-in CDP browser instead of developer OAuth.
 - `KROGER_REDIRECT_URI` defaults to `http://localhost:8080/callback`.
 - `KROGER_TOKEN_FILE` defaults to `~/.kroger_tokens.json`.
 
@@ -54,5 +56,5 @@ The module CLI provides `status` but does not provide `login`, `code`, or
 - Missing `cart.basic:write` for cart operations
 - Saving truncated tokens
 - Installing dependencies into a different Python environment than Hermes
-- Committing `.env`, token files, receipt PDFs, or live output containing
+- Committing `.env`, token files, purchase-history exports, or live output containing
   credentials

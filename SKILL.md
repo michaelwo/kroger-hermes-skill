@@ -1,7 +1,7 @@
 ---
 name: kroger-shopping
 description: API-first Kroger shopping integration for deterministic Hermes commands, conversational read-only product discovery, OAuth, and cart adds.
-version: 2.2.3
+version: 2.2.10
 category: shopping
 ---
 
@@ -17,6 +17,7 @@ endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
 
 - `/kroger search <term>` — compact direct search
 - `/kroger recommend <term>` — compact receipt-aware recommendations
+- `/kroger pull` — refresh local purchase history and titles through a signed-in CDP tab
 - `/kroger receipts` — local receipt order numbers and dates
 - `/kroger buyagain` — distinct purchased UPCs with locally saved purchase-history names
 - `/kroger version` — installed plugin version
@@ -72,17 +73,24 @@ The shared cache refreshes when JSON file metadata changes. `/kroger receipts` l
 order numbers and dates without API access; `/kroger buyagain` lists each UPC
 once using names saved by `/kroger pull`, without catalog requests. Missing names
 show `Name unavailable` with a reminder to refresh using `/kroger pull`.
-Both accept no arguments and are exclusive to the direct `/kroger` interface.
+Receipt inspection commands accept no arguments and are exclusive to the direct
+`/kroger` interface. Pull also accepts no arguments and is available as
+`python -m kroger_shopping pull`. It writes the root export, using
+`CDP_HOST`/`CDP_PORT` (default `127.0.0.1:9222`) and a signed-in Purchase History
+tab. Receipt-detail titles are restricted to UPCs already on the order.
 
 Previously purchased recommendation results include the latest valid receipt
-order date as `lp: YYYY-MM-DD`. Missing or invalid dates omit the purchase-date label. `RankedProduct.last_purchased_date` and
+order date as `lp: YYYY-MM-DD`. Missing or invalid dates omit that label.
+Direct and CLI output uses `sz:`, `pu:`, and `unwntd:` and omits `purchased: yes`.
+`RankedProduct.last_purchased_date` and
 the read-only recommendation tool's `last_purchased_date` field use ISO dates
 or null/None. Recency does not change ranking.
 
 ## Implementation Notes
 
 - Preserve the current layers: models, validation, parsers, recommendations,
-  unit pricing, receipts, config, auth, client, Hermes presentation, and tests.
+  unit pricing, receipts, purchase-history pulls, config, auth, client, Hermes
+  presentation, and tests.
 - Root `plugin.yaml` and `__init__.py` register `/kroger`, three read-only tools,
   and `kroger-shopping:shopping-assistant`.
 - `kroger_shopping/hermes_command.py` is the current direct command handler;

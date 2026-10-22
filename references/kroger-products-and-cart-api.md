@@ -22,8 +22,10 @@ in `references/openapi/` are the contract source for endpoint and schema checks.
   product details for ingredient inspection.
 - One product-detail failure does not abort other candidates; programmatic
   results retain a warning for the failed detail.
-- Receipt purchase history is read from exact 13-digit `UPC:` lines in
-  repository-level `receipts/purchase-history.json`.
+- Receipt purchase history is read from exact 13-digit strings in each order's `upcs` array in
+  repository-level `receipts/purchase-history.json`, falling back to the bundled
+  `kroger_shopping/receipts/purchase-history.json` only when the root directory
+  does not exist.
 - Previously purchased UPCs sort before unpurchased UPCs.
 - Known ingredient data sorts before unknown data; fewer matched unwanted
   ingredients sort first.
@@ -38,6 +40,16 @@ in `references/openapi/` are the contract source for endpoint and schema checks.
   stock status does not currently alter ranking.
 - Public slash-command and structured-tool output omits internal score reasons,
   warnings, and totals.
+
+## Purchase History
+
+- `/kroger pull` and module CLI `pull` use the signed-in Kroger website through
+  Chrome DevTools Protocol, independently of developer API OAuth.
+- Search: `https://www.kroger.com/atlas/v1/post-order/v1/purchase-history-search`
+- Receipt details: `POST https://www.kroger.com/atlas/v1/purchase-history/v2/details`
+- Pull stores matching receipt titles in `productNames`; `/kroger buyagain` reads
+  that local mapping without catalog API calls. These website endpoints are
+  separate from the committed developer OpenAPI contracts.
 
 ## Cart API
 

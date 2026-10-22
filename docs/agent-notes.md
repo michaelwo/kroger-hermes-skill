@@ -14,6 +14,8 @@ Guidance for coding agents working in this repository.
   calculations.
 - `kroger_shopping/receipts.py` owns local JSON order metadata, UPC ingestion,
   latest purchase dates, and caching.
+- `kroger_shopping/purchase_history.py` owns CDP history pulls, receipt-detail
+  title matching, and preservation of titles for unfetched receipts.
 - `kroger_shopping/auth.py` owns OAuth requests, token refresh, and token file
   persistence.
 - `kroger_shopping/client.py` owns the public API facade, request handling, and
@@ -32,6 +34,7 @@ Guidance for coding agents working in this repository.
   contracts.
 - `tests/test_receipt_history.py` covers receipt metadata, cache refresh, and
   latest purchase dates.
+- `tests/test_purchase_history.py` covers CDP pulls and receipt-title preservation.
 - `references/openapi/*.openapi.json` are committed Kroger OpenAPI references
   used by contract tests.
 - `docs/plans/` contains deferred proposals, not current behavior.
@@ -106,12 +109,23 @@ Additional constraints:
   filenames or filesystem timestamps. Recency does not affect ranking.
 - `RankedProduct.last_purchased_date` and the structured recommendation payload
   use an ISO date or None/null. Direct and CLI output adds
-  `lp: YYYY-MM-DD` when known; missing dates omit that label.
+  `lp: YYYY-MM-DD` when known; missing dates omit that label. Use `sz:`, `pu:`,
+  and `unwntd:` labels and omit `purchased: yes`.
 - `/kroger receipts` lists order numbers and dates without constructing a client.
   `/kroger buyagain` lists every distinct UPC with a locally exported name, retaining UPCs
   when names are missing. Buy-again must not construct a client or make catalog
-  requests; `/kroger pull` saves line-item names in `productNames`. Neither modifies the cart.
+  requests; `/kroger pull` saves matching receipt-detail titles in `productNames`.
+  Neither modifies the cart.
   Both reject extra arguments and are unavailable as module CLI or agent tools.
+
+## Pull and Reload Behavior
+
+- `/kroger pull` and module CLI `pull` write the root receipt export, creating
+  the directory; the bundled fallback is only for readers.
+- CDP defaults to `127.0.0.1:9222`, configurable through `CDP_HOST`/`CDP_PORT`.
+- Pull fetches search pages and receipt details; buy-again performs no network I/O.
+- `/kroger version` reads the on-disk manifest. Restart Hermes after code updates;
+  `/reset` alone does not reload Python handlers.
 
 ## Verification
 

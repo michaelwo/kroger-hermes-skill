@@ -23,10 +23,11 @@ it from result order or invent one.
 
 For requests to inspect all receipts or previously purchased products, direct the
 user to `/kroger receipts` (order numbers and dates) or `/kroger buyagain`
-(distinct UPCs with catalog names). To refresh local history from a logged-in
+(distinct UPCs with locally saved receipt titles). To refresh local history from a logged-in
 CDP Purchase History tab, direct them to `/kroger pull`. These are user-run
 commands, accept no arguments, and have no corresponding agent tools. `buyagain`
-lists products; it does not modify the cart.
+reads local history without catalog requests; it does not modify the cart.
+Missing titles show `Name unavailable` until a pull supplies matching names.
 
 Keep internal ranking mechanics out of the response. Do not describe Kroger result-order points, preference bonuses, nutrition-data availability bonuses, or an aggregate score.
 

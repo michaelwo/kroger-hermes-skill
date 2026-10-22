@@ -78,6 +78,9 @@ hermes plugins update kroger-shopping
 Restart the gateway process or container after installing, updating, enabling,
 or changing the plugin. Existing agent sessions may cache their tool prompt, so
 start a fresh TUI or gateway session with `/reset` after tool or skill changes.
+A reset does not reload Python modules: fully restart the TUI or gateway to
+activate code changes. `/kroger version` reads the manifest from disk, so its
+version alone does not prove the running handler has reloaded.
 
 Verify from the host or TUI:
 
@@ -140,6 +143,7 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger recommend <term>
 /kroger add <UPC> [quantity]
 /kroger receipts
+/kroger pull
 /kroger buyagain
 /kroger version
 /kroger login
@@ -162,20 +166,30 @@ Shopping shortcuts occupy the subcommand position and cannot be combined:
 ```
 
 `-s`, `-r`, and `-a` are aliases for `search`, `recommend`, and `add`.
-`/kroger version` prints the installed plugin version.
+`/kroger version` returns only the version from the installed `plugin.yaml`.
 
 Bare `/kroger` and `/kroger -h` show help. Authentication commands remain
 `login`, `code`, `status`, and `logout`; these shortcuts apply only to `/kroger`,
 not the standalone Python CLI or structured tools.
 
 Previously purchased recommendations include `lp: YYYY-MM-DD` using the
-most recent valid receipt order date for that UPC. Missing or invalid dates omit the purchase-date label. The structured recommendation tool also
-returns `last_purchased_date` (ISO date or null). Dates do not change ranking.
+most recent valid receipt order date for that UPC. Missing or invalid dates omit
+the purchase-date label. The structured recommendation tool also returns
+`last_purchased_date` (ISO date or null). Dates do not change ranking.
 
-`/kroger recommend` uses `sz:`, `pu:`, `unwntd:`, and `lp:` labels and returns compact product blocks with price, UPC, size, unit
-price, unwanted count, purchase history, stock status, and up to three actual
-unwanted-ingredient matches. It intentionally omits internal score reasons,
-warnings, and aggregate scores.
+`/kroger recommend` uses `sz:`, `pu:`, `unwntd:`, and `lp:` labels and returns
+compact product blocks with price, UPC, size, unit price, unwanted count, purchase
+date, stock status, and up to three actual unwanted-ingredient matches. The
+`purchased: yes` marker is omitted. For example:
+
+```text
+Milk
+$4.00 | 0001111050434 | sz: 8 oz | pu: $0.50/oz | unwntd: 0 | lp: 2026-05-31
+```
+
+These labels apply to the direct command and module CLI. Conversational replies
+from `kroger_recommend` are formatted by the agent. Public recommendation
+output omits internal score reasons, warnings, and aggregate scores.
 
 The manual OAuth workflow for containerized gateways is:
 
@@ -225,12 +239,19 @@ When the root `receipts/` directory does not exist, the loader uses
 `kroger_shopping/receipts/purchase-history.json` instead. An existing root
 directory takes precedence even when empty.
 
-`/kroger pull` overwrites that JSON from a Chrome tab already signed in on
-Purchase History (`https://www.kroger.com/mypurchases`) with remote debugging
+`/kroger pull` writes the root `receipts/purchase-history.json` (creating the
+root directory even when a bundled export exists) from a Chrome tab already
+signed in on Purchase History (`https://www.kroger.com/mypurchases`) with remote debugging
 on `127.0.0.1:9222`. It does not type credentials, export cookies, or call the
-developer API. The command accepts no arguments. Equivalent CLI:
+developer API. It fetches all search pages, then receipt details in batches of
+eight to obtain product titles and sizes. The command accepts no arguments.
+Equivalent CLI:
 `python -m kroger_shopping pull`. If DevTools is down or the tab is missing, it
-prints a short error and does not write a file.
+prints a short error and does not write a file. Set `CDP_HOST` and `CDP_PORT`
+in the Hermes process environment to override the default connection. The CDP
+address must be reachable from that process; in a container, loopback refers
+to the container. Pull reports the file path, order count, and number of orders
+with titles. The CLI reports the path and order count.
 
 The JSON must contain an `orders` array. Each order uses `receiptKey` as its
 order number, `orderDate` as its purchase date, and `upcs` as an array of
@@ -247,16 +268,22 @@ available only through `/kroger`.
 
 `/kroger buyagain` lists every distinct purchased UPC from the same local receipt
 cache used by `recommend`, sorted by UPC, with names saved by `/kroger pull`.
-The pull stores receipt-detail titles in each order's `productNames` mapping alongside
-`upcs`. Names are `description` plus size, and only for UPCs already on that order.
-A detail call that fails keeps the previous titles for that receipt. A detail that
-returns and shares no UPC with the list row stays untitled. Each UPC appears once, even when purchased on multiple orders; the latest
-dated order with a name takes precedence. Buy-again makes no catalog requests
+The pull stores receipt-detail titles in each order's `productNames` mapping
+alongside `upcs`. Receipt-detail names combine `description` and size when
+available, and are saved only for UPCs already on that order.
+When an individual detail response is missing or fails, pull can retain titles
+from the previous root export if the new search row has no names. A detail that
+returns and shares no UPC with the list row stays untitled. Each UPC appears
+once, even when purchased on multiple orders; the latest ISO-dated order with
+a name takes precedence. Buy-again makes no catalog requests
 and requires no API credentials. Missing names show `Name unavailable` with a
 reminder to run `/kroger pull`; older exports containing only UPCs still work.
 The command accepts no arguments and lists all products. Use
 `/kroger add <UPC> [quantity]` to add an item to your cart. If no UPCs are recognized,
 it returns `No purchased UPCs found in local receipts.`
+
+The full list is returned in one response; large histories can exceed a messaging
+gateway's response limits. Pagination is not implemented.
 
 Example with a single purchased product:
 
@@ -285,6 +312,7 @@ python -m kroger_shopping search <term> [--limit N]
 python -m kroger_shopping recommend <term> [--limit N]
 python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]
 python -m kroger_shopping status
+python -m kroger_shopping pull
 ```
 
 The module CLI is deterministic. It does not include the interactive
@@ -318,8 +346,8 @@ though public command and skill output hides internal score mechanics.
 
 Each `RankedProduct` also exposes `previously_purchased` and
 `last_purchased_date` (an ISO date string or `None`). The shared receipt interfaces
-are `load_receipt_history()`, `load_purchase_upcs()`, and
-`load_last_purchase_dates()` in `kroger_shopping.receipts`.
+are `load_receipt_history()`, `load_purchase_upcs()`, `load_purchase_names()`,
+and `load_last_purchase_dates()` in `kroger_shopping.receipts`.
 
 ## Architecture
 
@@ -330,6 +358,7 @@ are `load_receipt_history()`, `load_purchase_upcs()`, and
 - `kroger_shopping/recommendations.py` — ingredient matching and ranking
 - `kroger_shopping/unit_pricing.py` — size parsing and comparable unit prices
 - `kroger_shopping/receipts.py` — local JSON order metadata, UPC ingestion, latest purchase dates, and caching
+- `kroger_shopping/purchase_history.py` — CDP history export and receipt-detail titles
 - `kroger_shopping/auth.py` — OAuth requests, refresh, and token persistence
 - `kroger_shopping/client.py` — public API facade, HTTP handling, and auth retry
 - `kroger_shopping/hermes_command.py` — current direct `/kroger` presentation
@@ -340,6 +369,7 @@ are `load_receipt_history()`, `load_purchase_upcs()`, and
 - `tests/test_basic.py` — unit, output, and OpenAPI contract tests
 - `tests/test_hermes_plugin.py` — plugin registration, command adapters, and tool contract tests
 - `tests/test_receipt_history.py` — receipt metadata, caching, and latest purchase date tests
+- `tests/test_purchase_history.py` — CDP pulls, title matching, and title preservation
 - `references/openapi/*.openapi.json` — committed Kroger OpenAPI references
 - `docs/plans/` — deferred, explicitly unimplemented design plans
 
