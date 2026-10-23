@@ -52,12 +52,37 @@ def pick_event(products: Sequence[Mapping[str, Any]]) -> Event | None:
     return None
 
 
+def store_decision(failures: int) -> str:
+    return "replace" if failures == 0 else "keep"
+
+
+def persist_hits(receipts_dir, event: Event, hits, failures: int) -> str:
+    if store_decision(failures) != "replace":
+        return "unchanged"
+    from .buysave_store import save_buysave
+
+    try:
+        save_buysave(
+            receipts_dir,
+            offer_code=event.offer_code,
+            description=event.description,
+            end=event.end[:10],
+            upcs=[str(hit.get("upc") or "") for hit in hits],
+        )
+    except OSError:
+        return "failed"
+    return "replaced"
+
+
 def format_report(
     event: Event,
     purchases: Sequence[Purchase],
     hits: Sequence[Mapping[str, Any]],
     failures: int,
+    stored: str | None = None,
 ) -> str:
+    from .buysave_store import upc13
+
     by_upc = {item.upc: item for item in purchases}
     rows = []
     for hit in hits:
@@ -67,9 +92,17 @@ def format_report(
             continue
         rows.append((item.count, item.last_date, upc, item.name or str(hit.get("description") or "")))
     rows.sort(key=lambda row: (row[0], row[1], row[2]), reverse=True)
+    summary = f"history {len(purchases)}  matched {len(rows)}  lookup failures {failures}"
+    if stored == "replaced":
+        stored_count = len({code for code in (upc13(hit.get("upc")) for hit in hits) if code})
+        summary += f"  stored {stored_count}"
+    elif stored == "unchanged":
+        summary += "  stored unchanged"
+    elif stored == "failed":
+        summary += "  stored failed"
     lines = [
         f"{event.description}  exp {event.end[:10]}",
-        f"history {len(purchases)}  matched {len(rows)}  lookup failures {failures}",
+        summary,
     ]
     if not rows:
         lines.extend(["", "No purchased items are in this event."])
@@ -97,7 +130,10 @@ def report(receipts_dir=DEFAULT_RECEIPTS_DIR) -> str:
     looked = json.loads(payload)
     if looked.get("error"):
         raise CdpError(str(looked["error"]))
-    return format_report(event, purchases, looked.get("hits") or [], int(looked.get("failures") or 0))
+    hits = looked.get("hits") or []
+    failures = int(looked.get("failures") or 0)
+    stored = persist_hits(receipts_dir, event, hits, failures)
+    return format_report(event, purchases, hits, failures, stored=stored)
 
 
 def find_buy_and_save_target(targets: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None:

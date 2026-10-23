@@ -5,6 +5,7 @@ from typing import Callable, Optional, Sequence
 from . import recommendations, validation
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
+from .hermes_command import buysave_marker
 from .models import CartModality
 from .unit_pricing import format_unit_price_for_products
 
@@ -106,7 +107,7 @@ def _recommend(client: KrogerClient, term: str, limit: int) -> int:
             else ""
         )
         metadata = (
-            f"{_format_price(product.price)} | {product.upc} "
+            f"{_format_price(product.price)} | {product.upc}{buysave_marker(item.on_buy_and_save)} "
             f"| sz: {_format_optional_text(product.size)} "
             f"| pu: {format_unit_price_for_products(product, products)} "
             f"| unwntd: {unwanted}{purchased}{out_of_stock}"

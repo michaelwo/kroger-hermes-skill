@@ -3,6 +3,7 @@ from typing import Any, List, Optional, Sequence, Union
 from urllib.parse import quote
 
 from . import parsers, receipts, recommendations, validation
+from .buysave_store import load_buysave_upcs, upc13
 from .auth import KrogerAuthClient
 from .config import KrogerConfig
 from .exceptions import KrogerAuthError, KrogerError, KrogerServerError, KrogerValidationError
@@ -176,6 +177,7 @@ class KrogerClient:
         profile = preferences or PreferenceProfile()
         purchase_upcs = receipts.load_purchase_upcs()
         purchase_dates = receipts.load_last_purchase_dates()
+        buysave_upcs = load_buysave_upcs(receipts.DEFAULT_RECEIPTS_DIR)
         candidates = self.search_products(
             term,
             limit=candidate_limit,
@@ -208,6 +210,7 @@ class KrogerClient:
                     original_kroger_rank=index,
                     previously_purchased=product.upc in purchase_upcs,
                     last_purchased_date=purchase_dates.get(product.upc) if product.upc in purchase_upcs else None,
+                    on_buy_and_save=upc13(product.upc) in buysave_upcs,
                 )
             )
 

@@ -73,6 +73,7 @@ def handle_recommend(params: dict[str, Any], **kwargs: Any) -> str:
                     ),
                     "previously_purchased": item.previously_purchased,
                     "last_purchased_date": item.last_purchased_date,
+                    "buy_and_save": item.on_buy_and_save,
                     "out_of_stock": is_temporarily_out_of_stock(item.detail),
                 }
             )

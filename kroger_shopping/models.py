@@ -299,6 +299,7 @@ class RankedProduct:
     original_kroger_rank: int
     previously_purchased: bool = False
     last_purchased_date: Optional[str] = None
+    on_buy_and_save: bool = False
 
 
 @dataclass

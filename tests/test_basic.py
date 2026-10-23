@@ -1905,3 +1905,30 @@ def test_ranked_search_promotes_a_previously_purchased_upc(monkeypatch):
     assert [item.last_purchased_date for item in results] == ["2026-07-27", None]
     assert [item.product.description for item in results] == ["Purchased", "Current Best"]
     assert [item.previously_purchased for item in results] == [True, False]
+
+
+def test_ranked_search_marks_a_stored_buysave_upc(monkeypatch):
+    class FakeClient(KrogerClient):
+        def __init__(self):
+            pass
+
+        def search_products(self, term, limit=10, location_id=None, fulfillment=None, brand=None):
+            return [
+                make_product("0001111040101", description="Current Best"),
+                make_product("0001111040102", description="On the event"),
+            ]
+
+        def get_product_detail(self, product_id, location_id=None):
+            return make_detail(make_product(product_id), ingredients="Milk")
+
+    monkeypatch.setattr(receipts, "load_purchase_upcs", lambda: frozenset())
+    monkeypatch.setattr(receipts, "load_last_purchase_dates", lambda: {})
+    monkeypatch.setattr(
+        "kroger_shopping.client.load_buysave_upcs",
+        lambda receipts_dir: {"0001111040102"},
+    )
+    results = FakeClient().ranked_search_products("milk", limit=2, candidate_limit=2)
+
+    assert [item.product.description for item in results] == ["Current Best", "On the event"]
+    assert [item.on_buy_and_save for item in results] == [False, True]
+    assert [item.previously_purchased for item in results] == [False, False]

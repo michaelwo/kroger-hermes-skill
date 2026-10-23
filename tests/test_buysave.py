@@ -70,6 +70,31 @@ def test_report_sorts_by_count_then_date_and_includes_upc():
     assert "0000000000000" not in text
 
 
+def test_clean_lookup_replaces_the_snapshot(tmp_path):
+    from datetime import date
+
+    from kroger_shopping.buysave import persist_hits
+    from kroger_shopping.buysave_store import load_buysave_upcs
+
+    event = Event("offer-1", "Save $1 each when you buy 5 or more", "2026-10-27T23:59:59")
+    assert persist_hits(tmp_path, event, [{"upc": "0002100061223"}], 0) == "replaced"
+    assert load_buysave_upcs(tmp_path, today=date(2026, 10, 22)) == {"0002100061223"}
+    text = format_report(event, [], [{"upc": "0002100061223"}], 0, stored="replaced")
+    assert "stored 1" in text
+
+
+def test_lookup_failures_do_not_replace_the_snapshot(tmp_path):
+    from datetime import date
+
+    from kroger_shopping.buysave import persist_hits
+    from kroger_shopping.buysave_store import load_buysave_upcs, save_buysave
+
+    save_buysave(tmp_path, offer_code="old", description="old", end="2026-10-27", upcs=["0001111042850"])
+    event = Event("offer-1", "Save $1 each", "2026-10-27")
+    assert persist_hits(tmp_path, event, [{"upc": "0002100061223"}], 2) == "unchanged"
+    assert load_buysave_upcs(tmp_path, today=date(2026, 10, 22)) == {"0001111042850"}
+
+
 def test_find_buy_and_save_target_ignores_other_kroger_tabs():
     targets = [
         {"type": "page", "url": "https://www.kroger.com/savings/cl/coupons/", "webSocketDebuggerUrl": "ws://coupons"},
