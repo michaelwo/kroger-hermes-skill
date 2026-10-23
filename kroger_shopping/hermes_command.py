@@ -1,7 +1,10 @@
 import re
 import shlex
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
+
+if TYPE_CHECKING:
+    from .data_interface import KrogerDataFetcher
 
 from . import receipts
 from .client import KrogerClient
@@ -230,12 +233,12 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
     return f"Unknown subcommand: {subcommand}\n{help_text()}"
 
 
-def _pull_purchase_history_text() -> str:
-    from .purchase_history import CdpError, pull_purchase_history
+def _pull_purchase_history_text(fetcher: Optional["KrogerDataFetcher"] = None) -> str:
+    from .cdp_backend import CDPFetcher
 
     try:
-        result = pull_purchase_history()
-    except CdpError as exc:
+        result = (fetcher or CDPFetcher()).pull_purchase_history()
+    except KrogerError as exc:
         return str(exc)
     return (
         f"Wrote {result['orders']} orders to `{result['path']}`.{chr(10)}"
