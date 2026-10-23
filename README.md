@@ -375,12 +375,15 @@ and `load_last_purchase_dates()` in `kroger_shopping.receipts`.
 
 ## Development and Verification
 
-Run the offline unit suite:
+Run the offline unit suite from the repository root:
 
 ```bash
-python -m pytest
+python -m pytest tests
 ```
 
+GitHub Actions runs that same command on Python 3.12 and 3.13 for pushes to
+`main` and for pull requests. `tests/pytest.ini` puts the repo on `pythonpath`
+so pytest does not import the Hermes plugin `__init__.py` as a test package.
 Tests use fakes and committed OpenAPI fixtures and should not require live
 Kroger credentials. Run live smoke tests only when explicitly intended because
 they call Kroger APIs.

@@ -105,5 +105,6 @@ or null/None. Recency does not change ranking.
 
 ## Development
 
-Run `python -m pytest`. Tests must remain offline by default. Run live Kroger
-smoke tests only when explicitly requested or necessary for manual verification.
+Run `python -m pytest tests` from the repository root. Tests must remain offline
+by default. Run live Kroger smoke tests only when explicitly requested or
+necessary for manual verification.
