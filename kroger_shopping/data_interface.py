@@ -1,30 +1,14 @@
-from typing import List, Protocol
-from dataclasses import dataclass
-from datetime import datetime
+"""Purchase-history fetchers, independent of CDP vs local JSON."""
 
-@dataclass
-class Order:
-    receipt_key: str
-    order_date: str # YYYY-MM-DD
-    purchase_type: str
-    total: float
-    status: str
-    upcs: List[str]
-    
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Protocol
+
+
 class KrogerDataFetcher(Protocol):
-    """
-    Interface for fetching Kroger purchase history data.
-    Decouples data retrieval from the specific transport mechanism (e.g., CDP).
-    """
-    def fetch_purchase_history(self) -> List[Order]:
-        """
-        Fetches all purchase orders.
-        Called by high-level plugin logic (kroger_shopping/hermes_command.py).
-        """
-        ... # Implementation depends on the concrete fetcher (CDP, File, etc.)
-    
-    def fetch_all_upcs(self) -> List[str]:
-        """
-        Retrieves all unique UPCs from the current dataset.
-        """
-        ... # Implementation depends on the concrete fetcher
+    """Fetch purchase history without tying callers to Chrome DevTools."""
+
+    def pull_purchase_history(self, receipts_dir: Path | None = None) -> dict[str, Any]:
+        """Return `{path, orders, pageTotal, titled}` after reading or writing JSON."""
+        ...

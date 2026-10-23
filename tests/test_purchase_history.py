@@ -141,3 +141,67 @@ def test_detail_names_keep_only_order_upcs_and_preserve_unfetched():
     ]})
     assert order["productNames"] == {"0001111050434": "Milk", "0001111050435": "Bread"}
     assert len(order["upcs"]) == 3
+
+
+def test_file_fetcher_reads_local_json(tmp_path):
+    import json
+
+    from kroger_shopping.file_backend import FileFetcher
+    from kroger_shopping.receipts import PURCHASE_HISTORY_FILENAME
+
+    path = tmp_path / PURCHASE_HISTORY_FILENAME
+    path.write_text(
+        json.dumps({
+            "pageTotal": 2,
+            "orders": [
+                {
+                    "receiptKey": "a",
+                    "upcs": ["0001111050434"],
+                    "productNames": {"0001111050434": "Milk"},
+                },
+                {"receiptKey": "b", "upcs": ["0001111050435"]},
+            ],
+        })
+        + "\n",
+        encoding="utf-8",
+    )
+    result = FileFetcher(tmp_path).pull_purchase_history()
+    assert result["orders"] == 2
+    assert result["titled"] == 1
+    assert result["pageTotal"] == 2
+    assert result["path"] == path
+
+
+def test_file_fetcher_missing_file(tmp_path):
+    from kroger_shopping.exceptions import KrogerError
+    from kroger_shopping.file_backend import FileFetcher
+
+    try:
+        FileFetcher(tmp_path).pull_purchase_history()
+    except KrogerError as exc:
+        assert "No purchase history" in str(exc)
+    else:
+        raise AssertionError("expected KrogerError")
+
+
+def test_pull_command_uses_injected_fetcher(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    class FakeFetcher:
+        def pull_purchase_history(self, receipts_dir=None):
+            return {
+                "path": Path("/tmp/purchase-history.json"),
+                "orders": 3,
+                "pageTotal": 1,
+                "titled": 2,
+            }
+
+    monkeypatch.setattr(
+        hermes_command,
+        "get_client",
+        Mock(side_effect=AssertionError("client created")),
+    )
+    output = hermes_command._pull_purchase_history_text(FakeFetcher())
+    assert output.startswith("Wrote 3 orders to `")
+    assert "/tmp/purchase-history.json" in output
+    assert "Titles on 2 orders" in output

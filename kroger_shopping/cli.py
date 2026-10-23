@@ -141,10 +141,10 @@ def _status(client: KrogerClient) -> int:
     return 0
 
 
-def _pull() -> int:
-    from .purchase_history import pull_purchase_history
+def _pull(fetcher=None) -> int:
+    from .cdp_backend import CDPFetcher
 
-    result = pull_purchase_history()
+    result = (fetcher or CDPFetcher()).pull_purchase_history()
     print(f"Wrote {result['orders']} orders to {result['path']}.")
     return 0
 
