@@ -126,6 +126,7 @@ def test_read_only_recommend_tool_returns_structured_product_data(monkeypatch):
             "ingredient_data_known": True,
             "previously_purchased": True,
             "last_purchased_date": None,
+            "buy_and_save": False,
             "out_of_stock": False,
         }
     ]
@@ -420,6 +421,13 @@ def test_recommend_shows_last_bought(monkeypatch, dispatch_kroger, date):
         assert "lp: 2026-07-27" in output
     else:
         assert "lp:" not in output
+
+
+def test_buysave_marker_is_empty_unless_flagged():
+    from kroger_shopping.hermes_command import buysave_marker
+
+    assert buysave_marker(True) == " | buysave"
+    assert buysave_marker(False) == ""
 
 
 def test_version_reads_manifest_without_client(monkeypatch, tmp_path):

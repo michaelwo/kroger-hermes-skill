@@ -22,6 +22,10 @@ def get_client() -> KrogerClient:
     return _client
 
 
+def buysave_marker(on_buy_and_save: bool) -> str:
+    return " | buysave" if on_buy_and_save else ""
+
+
 def help_text() -> str:
     return (
         "Kroger commands:\n"
@@ -147,7 +151,7 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                     else ""
                 )
                 metadata = (
-                    f"{price} | `{product.upc}` "
+                    f"{price} | `{product.upc}`{buysave_marker(result.on_buy_and_save)} "
                     f"| sz: {size} | pu: {unit} | unwntd: {unwanted}"
                     f"{purchased}{out_of_stock}{match_text}"
                 )
