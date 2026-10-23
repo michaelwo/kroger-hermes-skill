@@ -83,12 +83,15 @@ class KrogerClient:
         self._raise_for_response(resp)
         return resp
 
-    def _token_for_mode(self, auth_mode: str) -> str:
-        if auth_mode == "app":
-            return self.auth.get_app_access_token()
-        if auth_mode == "user":
-            return self.auth.get_user_access_token()
-        raise ValueError(f"Unknown auth mode: {auth_mode}")
+    def get_data_fetcher(self, use_cdp: bool = False) -> KrogerDataFetcher:
+        """Factory method to return the appropriate fetcher implementation."""
+        if use_cdp:
+            # Requires self.config.get('cdp_host') and self.config.get('cdp_port')
+            # This is an incomplete/mocked call until config is robust
+            return CDPFetcher(self.config.get('cdp_host', '127.0.0.1'), self.config.get('cdp_port', 9222))
+        else:
+            # Default to file based data (for testing)
+            return FileFetcher(Path(self.config.get('receipts_dir', receipts.DEFAULT_RECEIPTS_DIR)))
 
     def _refresh_for_mode(self, auth_mode: str) -> str:
         if auth_mode == "app":
