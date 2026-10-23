@@ -1,9 +1,13 @@
 import json
 import stat
 import time
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_OPENAPI = _REPO_ROOT / "references" / "openapi"
 
 from kroger_shopping import KrogerAuthError, KrogerValidationError
 from kroger_shopping import parsers, receipts, recommendations, unit_pricing, validation
@@ -568,11 +572,11 @@ def test_ingredient_extraction_prefers_typed_nutrition_statement_over_raw_fallba
 
 
 def test_openapi_contract_values_match_client_validators():
-    with open("references/openapi/kroger-products.openapi.json", encoding="utf-8") as fh:
+    with open(_OPENAPI / "kroger-products.openapi.json", encoding="utf-8") as fh:
         products = json.load(fh)
-    with open("references/openapi/kroger-cart.openapi.json", encoding="utf-8") as fh:
+    with open(_OPENAPI / "kroger-cart.openapi.json", encoding="utf-8") as fh:
         cart = json.load(fh)
-    with open("references/openapi/kroger-location.openapi.json", encoding="utf-8") as fh:
+    with open(_OPENAPI / "kroger-location.openapi.json", encoding="utf-8") as fh:
         locations = json.load(fh)
 
     assert "/v1/products" in products["paths"]
@@ -597,7 +601,7 @@ def test_openapi_contract_values_match_client_validators():
 
 
 def test_openapi_product_item_response_values_match_models():
-    with open("references/openapi/kroger-products.openapi.json", encoding="utf-8") as fh:
+    with open(_OPENAPI / "kroger-products.openapi.json", encoding="utf-8") as fh:
         products = json.load(fh)
 
     schemas = products["components"]["schemas"]

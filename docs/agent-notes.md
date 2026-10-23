@@ -129,7 +129,7 @@ Additional constraints:
 
 ## Verification
 
-- Run `python -m pytest` for the full unit suite.
+- Run `python -m pytest tests` from the repository root for the full unit suite.
 - Unit tests should not require live Kroger credentials.
 - Validate the bundled skill when it changes.
 - Run live Kroger smoke tests only when explicitly requested or when manual API
