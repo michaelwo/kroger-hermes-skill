@@ -1,12 +1,11 @@
 """Structured, read-only Hermes tools backed by the Kroger client."""
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from .exceptions import KrogerError, KrogerValidationError
 from .hermes_command import get_client
-from .recommendations import is_temporarily_out_of_stock
-from .unit_pricing import format_unit_price_for_products
+from .public_payloads import recommendation_products
 
 
 SEARCH_SCHEMA = {
@@ -58,27 +57,7 @@ def handle_recommend(params: dict[str, Any], **kwargs: Any) -> str:
     try:
         query, limit = _query_and_limit(params)
         ranked = get_client().ranked_search_products(query, limit=limit)
-        products = [item.product for item in ranked]
-        payloads = []
-        for item in ranked:
-            payload = _product_payload(item.product, products)
-            payload.update(
-                {
-                    "unwanted_ingredient_count": (
-                        item.preference_score.unwanted_ingredient_count
-                    ),
-                    "unwanted_ingredients": item.preference_score.unwanted_ingredients,
-                    "ingredient_data_known": (
-                        item.preference_score.unwanted_ingredient_count is not None
-                    ),
-                    "previously_purchased": item.previously_purchased,
-                    "last_purchased_date": item.last_purchased_date,
-                    "buy_and_save": item.on_buy_and_save,
-                    "out_of_stock": is_temporarily_out_of_stock(item.detail),
-                }
-            )
-            payloads.append(payload)
-        return _success(query=query, products=payloads)
+        return _success(query=query, products=recommendation_products(ranked))
     except (KrogerValidationError, KrogerError, TypeError, ValueError) as exc:
         return _error(exc)
 
@@ -104,17 +83,14 @@ def _query_and_limit(params: dict[str, Any]) -> tuple[str, int]:
     return query, limit
 
 
-def _product_payload(product: Any, products: Optional[list[Any]] = None) -> dict[str, Any]:
-    payload = {
+def _product_payload(product: Any) -> dict[str, Any]:
+    return {
         "description": product.description,
         "brand": product.brand,
         "upc": product.upc,
         "price": product.price,
         "size": product.size,
     }
-    if products is not None:
-        payload["unit_price"] = format_unit_price_for_products(product, products)
-    return payload
 
 
 def _success(**payload: Any) -> str:

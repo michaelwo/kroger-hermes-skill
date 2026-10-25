@@ -7,12 +7,49 @@ import threading
 import fcntl
 import requests
 from contextlib import contextmanager
-from urllib.parse import urlencode
-from typing import Optional
+from urllib.parse import parse_qs, urlencode
+from typing import Optional, Tuple
 
 from .config import KrogerConfig
 from .models import TokenSet
 from .exceptions import KrogerAuthError
+
+
+def parse_authorization_response(value: str) -> Tuple[str, Optional[str]]:
+    """Return ``(code, state)`` from a bare code or a pasted Kroger redirect URL.
+
+    Accepts ``<code>``, ``code=<code>&state=<state>``, ``?code=...`` and the full
+    ``http://localhost:8080/callback?code=...&state=...`` redirect. ``state`` is None
+    when the pasted value does not carry one.
+    """
+    text = (value or "").strip()
+    if not text:
+        raise KrogerAuthError("Authorization code is empty. Run /kroger login first.")
+
+    looks_like_redirect = (
+        "://" in text or "?" in text or "code=" in text or "error=" in text
+    )
+    if not looks_like_redirect:
+        return text, None
+
+    query = text.split("?", 1)[1] if "?" in text else text
+    query = query.split("#", 1)[0]
+    params = parse_qs(query, keep_blank_values=True)
+
+    if params.get("error"):
+        reason = (params.get("error_description") or params["error"])[0]
+        raise KrogerAuthError(
+            f"Kroger authorization was not granted: {reason}. Run /kroger login to try again."
+        )
+
+    code = (params.get("code") or [""])[0].strip()
+    if not code:
+        raise KrogerAuthError(
+            "No `code` parameter found in the pasted redirect URL. "
+            "Paste the full URL from the browser address bar after approving access."
+        )
+    state = (params.get("state") or [""])[0].strip() or None
+    return code, state
 
 
 class KrogerAuthClient:
@@ -23,6 +60,7 @@ class KrogerAuthClient:
     USER_SCOPES = ("product.compact", "cart.basic:write", "profile.compact")
     APP_SCOPES = ("product.compact",)
     EXPIRY_SKEW_SECONDS = 300
+    PENDING_LOGIN_MAX_AGE_SECONDS = 15 * 60
 
     def __init__(self, config: KrogerConfig):
         self.config = config
@@ -47,6 +85,56 @@ class KrogerAuthClient:
             "state": state or secrets.token_urlsafe(24),
         }
         return f"{self.AUTH_URL}?{urlencode(params)}"
+
+    def begin_login(self) -> str:
+        """Start a login: persist a fresh OAuth ``state`` and return its authorization URL."""
+        state = secrets.token_urlsafe(24)
+        self._save_pending_state(state)
+        return self.authorization_url(state=state)
+
+    @property
+    def _pending_state_file(self) -> str:
+        return f"{self.config.token_file}.login-state"
+
+    def _save_pending_state(self, state: str):
+        path = self._pending_state_file
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        temp_file = f"{path}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump({"state": state, "created_at": time.time()}, f)
+        os.chmod(temp_file, 0o600)
+        os.replace(temp_file, path)
+
+    def _clear_pending_state(self):
+        try:
+            os.remove(self._pending_state_file)
+        except FileNotFoundError:
+            pass
+
+    def _verify_pending_state(self, state: str):
+        """Reject a redirect whose ``state`` does not match the last /kroger login."""
+        try:
+            with open(self._pending_state_file) as f:
+                pending = json.load(f)
+        except FileNotFoundError:
+            raise KrogerAuthError(
+                "No /kroger login is in progress for this redirect. Run /kroger login and use its URL."
+            ) from None
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KrogerAuthError(
+                "Saved login state is unreadable. Run /kroger login again."
+            ) from exc
+
+        expected = str(pending.get("state") or "")
+        created_at = float(pending.get("created_at") or 0)
+        if not expected or not secrets.compare_digest(expected, state):
+            raise KrogerAuthError(
+                "This redirect is from a different /kroger login. "
+                "Run /kroger login again and use the URL it prints."
+            )
+        if time.time() - created_at > self.PENDING_LOGIN_MAX_AGE_SECONDS:
+            self._clear_pending_state()
+            raise KrogerAuthError("This /kroger login has expired. Run /kroger login again.")
 
     def get_valid_access_token(self) -> str:
         """Get a valid user access token, refreshing if necessary."""
@@ -104,8 +192,14 @@ class KrogerAuthClient:
 
             return self._refresh_access_token(self._user_tokens.refresh_token)
 
-    def exchange_code_for_tokens(self, code: str) -> TokenSet:
-        """Exchange an authorization code for tokens."""
+    def exchange_code_for_tokens(self, code: str, state: Optional[str] = None) -> TokenSet:
+        """Exchange an authorization code for tokens.
+
+        When the pasted redirect carried ``state``, it must match the pending
+        /kroger login before the code is sent to Kroger.
+        """
+        if state is not None:
+            self._verify_pending_state(state)
         resp = self._post_token(
             {
                 "grant_type": "authorization_code",
@@ -120,6 +214,7 @@ class KrogerAuthClient:
         )
         with self._lock, self._token_file_lock():
             self._save_user_tokens(tokens)
+        self._clear_pending_state()
         return tokens
 
     def has_valid_user_tokens(self) -> bool:
@@ -210,6 +305,34 @@ class KrogerAuthClient:
         )
 
         if resp.status_code != 200:
+            try:
+                error_data = resp.json()
+            except (AttributeError, ValueError, TypeError):
+                error_data = {}
+            if not isinstance(error_data, dict):
+                error_data = {}
+            error = str(error_data.get("error", "")).lower()
+            description = str(error_data.get("error_description", "")).lower()
+            grant_type = data.get("grant_type")
+
+            if grant_type == "refresh_token":
+                if error == "invalid_request" and "invalid refresh_token" in description:
+                    self.clear_user_tokens()
+                    raise KrogerAuthError(
+                        "Kroger login expired. Run /kroger login, then /kroger code <code>."
+                    )
+            elif grant_type == "authorization_code" and resp.status_code == 400:
+                if "redirect_uri" in description:
+                    raise KrogerAuthError(
+                        f"Kroger rejected the redirect URI {self.config.redirect_uri}. "
+                        "Set KROGER_REDIRECT_URI to the exact URI registered for your Kroger app."
+                    )
+                if error == "invalid_grant" or (error == "invalid_request" and "code" in description):
+                    raise KrogerAuthError(
+                        "Kroger rejected the authorization code: it expired, was already used, "
+                        "or came from an older /kroger login. Run /kroger login and paste the "
+                        "new redirect URL right away."
+                    )
             raise KrogerAuthError(
                 f"Token request failed with status {resp.status_code}: {self._safe_error_body(resp)}"
             )

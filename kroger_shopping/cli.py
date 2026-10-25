@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from typing import Callable, Optional, Sequence
 
@@ -7,6 +8,7 @@ from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .hermes_command import buysave_marker
 from .models import CartModality
+from .public_payloads import RECOMMENDATIONS_SCHEMA, recommendation_products
 from .unit_pricing import format_unit_price_for_products
 
 
@@ -29,6 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
     recommend = subparsers.add_parser("recommend", help="Rank Kroger products by local preferences")
     recommend.add_argument("term", nargs="+")
     recommend.add_argument("--limit", type=int, default=10)
+    recommend.add_argument("--json", action="store_true", dest="json_output")
 
     add = subparsers.add_parser("add", help="Add a UPC to the Kroger cart")
     add.add_argument("upc")
@@ -54,7 +57,7 @@ def main(
         if args.command == "search":
             return _search(client, " ".join(args.term), args.limit)
         if args.command == "recommend":
-            return _recommend(client, " ".join(args.term), args.limit)
+            return _recommend(client, " ".join(args.term), args.limit, json_output=args.json_output)
         if args.command == "add":
             return _add(client, args.upc, args.quantity, args.modality)
         if args.command == "status":
@@ -83,8 +86,20 @@ def _search(client: KrogerClient, term: str, limit: int) -> int:
     return 0
 
 
-def _recommend(client: KrogerClient, term: str, limit: int) -> int:
+def _recommend(client: KrogerClient, term: str, limit: int, *, json_output: bool = False) -> int:
     ranked = client.ranked_search_products(term, limit=limit)
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "schema": RECOMMENDATIONS_SCHEMA,
+                    "success": True,
+                    "query": term,
+                    "products": recommendation_products(ranked),
+                }
+            )
+        )
+        return 0
     if not ranked:
         print("No products found.")
         return 0

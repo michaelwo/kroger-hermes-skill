@@ -19,7 +19,7 @@ def register(ctx):
         "kroger",
         handle_kroger,
         description="Search, recommend, and add Kroger products",
-        args_hint="<search|recommend|add|receipts|pull|buyagain|buysave|clipcoupon|version|login|code|status|logout|-s|-r|-a|-h> [args]",
+        args_hint="<search|recommend|add|receipts|pull|buyagain|buysave|clipcoupon|widget|version|login|code|status|logout|-s|-r|-a|-h> [args]",
     )
     ctx.register_tool(
         name="kroger_search",
