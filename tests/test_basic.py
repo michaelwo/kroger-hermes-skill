@@ -219,6 +219,34 @@ def test_expired_saved_user_token_refreshes_and_persists_new_access_token(tmp_pa
     assert calls == [{"grant_type": "refresh_token", "refresh_token": "saved-refresh"}]
 
 
+def test_invalid_refresh_token_is_cleared_and_requests_login(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+    auth._save_user_tokens(
+        TokenSet(
+            access_token="expired-access",
+            refresh_token="invalid-refresh",
+            expires_in=1800,
+            expires_at=time.time() - 1,
+            scope="product.compact cart.basic:write profile.compact",
+        )
+    )
+
+    class Response:
+        status_code = 400
+        text = '{"error":"invalid_request","error_description":"invalid refresh_token"}'
+
+        def json(self):
+            return json.loads(self.text)
+
+    monkeypatch.setattr("kroger_shopping.auth.requests.post", lambda *args, **kwargs: Response())
+
+    with pytest.raises(KrogerAuthError, match="Kroger login expired.*Run /kroger login"):
+        auth.get_user_access_token()
+
+    assert not Path(config.token_file).exists()
+
+
 def test_search_uses_app_token(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     calls = []
@@ -1763,6 +1791,49 @@ def test_cli_recommend_formats_compact_ranked_lines(capsys):
         "Simple Truth Cheddar Block\n"
         "$5.99 | 0001111050435 | sz: 1 lb | pu: $0.37/oz | unwntd: 0 | out of stock\n"
     )
+
+
+def test_cli_recommend_json_uses_public_versioned_payload(capsys):
+    from kroger_shopping import cli
+    from kroger_shopping.models import ProductPreferenceScore, RankedProduct
+
+    class Client:
+        def ranked_search_products(self, term, limit=10):
+            assert (term, limit) == ("whole milk", 1)
+            return [
+                RankedProduct(
+                    product=Product(
+                        upc="0001111050434",
+                        product_id="0001111050434",
+                        description="Simple Truth Milk",
+                        brand="Simple Truth",
+                        price=4.99,
+                        size="64 fl oz",
+                    ),
+                    detail=None,
+                    preference_score=ProductPreferenceScore(
+                        total=92.5,
+                        reasons=["private rank reason"],
+                        warnings=["private warning"],
+                        unwanted_ingredient_count=0,
+                    ),
+                    original_kroger_rank=1,
+                )
+            ]
+
+    exit_code = cli.main(
+        ["recommend", "whole", "milk", "--limit", "1", "--json"],
+        client_factory=Client,
+    )
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema"] == "kroger.recommendations.v1"
+    assert payload["query"] == "whole milk"
+    assert payload["products"][0]["upc"] == "0001111050434"
+    assert "total" not in payload["products"][0]
+    assert "reasons" not in payload["products"][0]
+    assert "warnings" not in payload["products"][0]
 
 
 def test_hermes_recommend_formats_size_unit_and_omits_score(monkeypatch):

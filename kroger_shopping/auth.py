@@ -210,6 +210,17 @@ class KrogerAuthClient:
         )
 
         if resp.status_code != 200:
+            if data.get("grant_type") == "refresh_token":
+                try:
+                    error_data = resp.json()
+                except (ValueError, TypeError):
+                    error_data = {}
+                description = str(error_data.get("error_description", "")).lower()
+                if error_data.get("error") == "invalid_request" and "invalid refresh_token" in description:
+                    self.clear_user_tokens()
+                    raise KrogerAuthError(
+                        "Kroger login expired. Run /kroger login, then /kroger code <code>."
+                    )
             raise KrogerAuthError(
                 f"Token request failed with status {resp.status_code}: {self._safe_error_body(resp)}"
             )

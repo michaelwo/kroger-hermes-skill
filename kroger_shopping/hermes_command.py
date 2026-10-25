@@ -1,3 +1,4 @@
+import json
 import re
 import shlex
 from pathlib import Path
@@ -9,8 +10,10 @@ if TYPE_CHECKING:
 from . import receipts
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
+from .public_payloads import RECOMMENDATIONS_SCHEMA, recommendation_products
 from .recommendations import is_temporarily_out_of_stock
 from .unit_pricing import format_unit_price_for_products
+from .validation import validate_cart_modality
 
 
 _SHORTCUTS = {"-s": "search", "-r": "recommend", "-a": "add"}
@@ -38,6 +41,7 @@ def help_text() -> str:
         "- /kroger receipts\n"
         "- /kroger pull\n"
         "- /kroger buyagain\n"
+        "- /kroger widget <install|status|remove>\n"
         "- /kroger buysave\n"
         "- /kroger clipcoupon all\n"
         "- /kroger clipcoupon all --dry-run\n"
@@ -77,6 +81,17 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         if match is None:
             return "Plugin version is unavailable."
         return match.group(1)
+
+    if subcommand == "widget":
+        from .widget_install import install_widget, remove_widget, widget_status
+
+        if list(args) == ["install"]:
+            return install_widget()
+        if list(args) == ["status"]:
+            return widget_status()
+        if list(args) == ["remove"]:
+            return remove_widget()
+        return "Usage: /kroger widget <install|status|remove>"
 
     if subcommand == "buyagain":
         if args:
@@ -123,9 +138,24 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         if not args:
             return "Usage: /kroger recommend <term>"
         client = get_client()
-        term = " ".join(args)
+        json_output = args[0] == "--json"
+        term_args = args[1:] if json_output else args
+        if not term_args:
+            if json_output:
+                return "Usage: /kroger recommend --json <term>"
+            return "Usage: /kroger recommend <term>"
+        term = " ".join(term_args)
         try:
             results = client.ranked_search_products(term, limit=10)
+            if json_output:
+                return json.dumps(
+                    {
+                        "schema": RECOMMENDATIONS_SCHEMA,
+                        "success": True,
+                        "query": term,
+                        "products": recommendation_products(results),
+                    }
+                )
             if not results:
                 return "No products found."
             lines = []
@@ -170,12 +200,28 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
             return "Usage: /kroger add <UPC> [quantity=1]"
         client = get_client()
         upc = args[0]
+        remaining = list(args[1:])
+        quantity_value = "1"
+        if remaining and remaining[0] != "--modality":
+            quantity_value = remaining.pop(0)
         try:
-            quantity = int(args[1]) if len(args) > 1 else 1
+            quantity = int(quantity_value)
         except ValueError:
             return "Validation error: quantity must be a whole number"
+        modality = None
+        if remaining:
+            if len(remaining) != 2 or remaining[0] != "--modality":
+                return "Usage: /kroger add <UPC> [quantity=1] [--modality PICKUP|DELIVERY]"
+            try:
+                modality = validate_cart_modality(remaining[1])
+            except KrogerValidationError as exc:
+                return f"Validation error: {exc}"
         try:
-            success = client.add_to_cart(upc, quantity)
+            success = (
+                client.add_to_cart(upc, quantity, modality=modality)
+                if modality is not None
+                else client.add_to_cart(upc, quantity)
+            )
             if not success:
                 return "Failed to add"
         except KrogerValidationError as exc:
@@ -189,7 +235,8 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                 title = product.description
         except KrogerError:
             pass
-        return f"Added to cart: {title} | UPC: `{upc.strip()}` | Quantity: {quantity}"
+        modality_text = f" | Modality: {modality.value}" if modality is not None else ""
+        return f"Added to cart: {title} | UPC: `{upc.strip()}` | Quantity: {quantity}{modality_text}"
 
     if subcommand == "login":
         client = get_client()

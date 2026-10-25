@@ -11,6 +11,7 @@ from pathlib import Path
 from kroger_shopping.hermes_command import handle_kroger
 from kroger_shopping.receipts import ReceiptHistoryEntry
 from kroger_shopping.models import (
+    CartModality,
     Product,
     ProductPreferenceScore,
     RankedProduct,
@@ -142,6 +143,65 @@ def test_read_only_tools_return_structured_validation_errors():
     }
 
 
+def test_direct_recommend_json_uses_versioned_public_payload(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    product = Product(
+        upc="0001111050434",
+        product_id="0001111050434",
+        description="Simple Truth Milk",
+        brand="Simple Truth",
+        price=4.00,
+        size="8 oz",
+    )
+    client = Mock()
+    client.ranked_search_products.return_value = [
+        RankedProduct(
+            product=product,
+            detail=None,
+            preference_score=ProductPreferenceScore(
+                total=42.0,
+                reasons=["internal score reason"],
+                warnings=["internal warning"],
+                unwanted_ingredient_count=1,
+                unwanted_ingredients=["Artificial colors"],
+            ),
+            original_kroger_rank=1,
+            previously_purchased=True,
+            last_purchased_date="2026-07-27",
+        )
+    ]
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+
+    result = json.loads(handle_kroger("recommend --json whole milk"))
+
+    assert result == {
+        "schema": "kroger.recommendations.v1",
+        "success": True,
+        "query": "whole milk",
+        "products": [
+            {
+                "description": "Simple Truth Milk",
+                "brand": "Simple Truth",
+                "upc": "0001111050434",
+                "price": 4.0,
+                "size": "8 oz",
+                "unit_price": "$0.50/oz",
+                "unwanted_ingredient_count": 1,
+                "unwanted_ingredients": ["Artificial colors"],
+                "ingredient_data_known": True,
+                "previously_purchased": True,
+                "last_purchased_date": "2026-07-27",
+                "buy_and_save": False,
+                "out_of_stock": False,
+            }
+        ],
+    }
+    assert "internal score reason" not in json.dumps(result)
+    assert "internal warning" not in json.dumps(result)
+    client.ranked_search_products.assert_called_once_with("whole milk", limit=10)
+
+
 def test_direct_kroger_handler_parses_quoted_search(monkeypatch):
     from kroger_shopping import hermes_command
 
@@ -248,6 +308,49 @@ def test_shortcuts_match_full_commands(monkeypatch, dispatch_kroger, alias, cano
     operation.assert_called_once_with(*expected_args, **kwargs)
 
 
+def test_widget_install_copies_bundled_picker_into_active_hermes_home(monkeypatch, tmp_path):
+    from kroger_shopping import widget_install
+
+    source = tmp_path / "bundled-kroger-pick.mjs"
+    source.write_text("export default function register() {}\n", encoding="utf-8")
+    home = tmp_path / "profile"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setattr(widget_install, "bundled_widget_path", lambda: source)
+
+    output = handle_kroger("widget install")
+
+    destination = home / "tui-widgets" / "kroger-pick.mjs"
+    assert destination.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
+    assert output == f"Installed Kroger picker widget: `{destination}`"
+
+
+def test_widget_status_and_remove_track_the_installed_picker(monkeypatch, tmp_path):
+    from kroger_shopping import widget_install
+
+    source = tmp_path / "bundled-kroger-pick.mjs"
+    source.write_text("export default function register() {}\n", encoding="utf-8")
+    home = tmp_path / "profile"
+    destination = home / "tui-widgets" / "kroger-pick.mjs"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setattr(widget_install, "bundled_widget_path", lambda: source)
+
+    assert "not installed" in handle_kroger("widget status")
+    handle_kroger("widget install")
+    assert handle_kroger("widget status") == f"Kroger picker widget is current: `{destination}`"
+
+    destination.write_text("stale\n", encoding="utf-8")
+    assert "needs an update" in handle_kroger("widget status")
+    assert handle_kroger("widget remove") == f"Removed Kroger picker widget: `{destination}`"
+    assert not destination.exists()
+
+
+def test_widget_command_rejects_unknown_action_without_touching_client(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    monkeypatch.setattr(hermes_command, "get_client", Mock(side_effect=AssertionError("client created")))
+    assert handle_kroger("widget nope") == "Usage: /kroger widget <install|status|remove>"
+
+
 @pytest.mark.parametrize("raw,expected", [
     ("-s", "Usage: /kroger search <term>"),
     ("-r", "Usage: /kroger recommend <term>"),
@@ -308,6 +411,28 @@ def test_add_confirms_product_title_upc_and_quantity(monkeypatch, dispatch_kroge
     )
     client.add_to_cart.assert_called_once_with("0001111050434", quantity)
     client.get_product_detail.assert_called_once_with("0001111050434")
+
+
+def test_add_accepts_delivery_modality_and_confirms_it(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    client = Mock()
+    client.add_to_cart.return_value = True
+    client.get_product_detail.return_value = Product(
+        upc="0001111050434",
+        product_id="0001111050434",
+        description="Simple Truth Milk",
+    )
+    monkeypatch.setattr(hermes_command, "get_client", lambda: client)
+
+    assert handle_kroger("add 0001111050434 1 --modality DELIVERY") == (
+        "Added to cart: Simple Truth Milk | UPC: `0001111050434` | Quantity: 1 | Modality: DELIVERY"
+    )
+    client.add_to_cart.assert_called_once_with(
+        "0001111050434",
+        1,
+        modality=CartModality.DELIVERY,
+    )
 
 
 @pytest.mark.parametrize("lookup_error", [False, True])

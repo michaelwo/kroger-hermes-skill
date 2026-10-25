@@ -36,6 +36,7 @@ expose a cart-write tool to the LLM.
 - OAuth2 authorization-code flow for cart writes, including refresh and
   token-file persistence with restrictive permissions
 - Direct `/kroger` commands for Hermes TUI and messaging gateways
+- Optional `/kroger-pick <term>` grid picker for the local Hermes TUI
 - Optional conversational shopping through plugin-bundled skill and tools
 - Low-noise module CLI for terminal and automation use
 
@@ -81,6 +82,34 @@ start a fresh TUI or gateway session with `/reset` after tool or skill changes.
 A reset does not reload Python modules: fully restart the TUI or gateway to
 activate code changes. `/kroger version` reads the manifest from disk, so its
 version alone does not prove the running handler has reloaded.
+
+### Optional local TUI picker
+
+After the plugin is enabled and the TUI has been restarted, install the bundled
+widget into the active Hermes profile:
+
+```text
+/kroger widget install
+```
+
+The TUI watches `$HERMES_HOME/tui-widgets/`, so the new command should become
+available without modifying the Hermes installation:
+
+```text
+/kroger-pick lactose free milk
+```
+
+Use `/kroger widget status` to compare the installed widget with the plugin copy
+and `/kroger widget remove` to remove only the picker. Run `widget install` again
+after a plugin update when `widget status` reports that an update is needed.
+
+The picker is a local, single-profile feature spike. It launches
+`$HERMES_PYTHON -m kroger_shopping` from the installed plugin directory rather
+than routing through the Hermes gateway. It therefore does not support a TUI
+attached to a remote gateway or guarantee correct profile selection in a
+multiplexed gateway. Credentials remain in the Python process and are not copied
+into widget state. Success remains visible in the modal until Enter or Esc is
+pressed because the current widget SDK has no transcript-insertion capability.
 
 Verify from the host or TUI:
 
@@ -145,6 +174,7 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger receipts
 /kroger pull
 /kroger buyagain
+/kroger widget <install|status|remove>
 /kroger version
 /kroger login
 /kroger code <authorization-code>
@@ -309,7 +339,7 @@ ranking.
 
 ```text
 python -m kroger_shopping search <term> [--limit N]
-python -m kroger_shopping recommend <term> [--limit N]
+python -m kroger_shopping recommend <term> [--limit N] [--json]
 python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]
 python -m kroger_shopping status
 python -m kroger_shopping pull
@@ -319,7 +349,9 @@ The module CLI is deterministic. It does not include the interactive
 authorization-code commands; use `/kroger login` and `/kroger code` for that
 workflow. The receipt inspection commands `receipts` and `buyagain` are also
 exclusive to `/kroger`. Module CLI recommendations include the same
-`lp: YYYY-MM-DD` metadata when a purchase date is known.
+`lp: YYYY-MM-DD` metadata when a purchase date is known. `--json` emits the
+versioned `kroger.recommendations.v1` public payload consumed by the local picker
+and omits internal ranking totals, reasons, and warnings.
 
 ## Python Usage
 
@@ -410,4 +442,6 @@ tests, and documentation together.
 - The plugin exposes no LLM-accessible cart-write tool.
 - The bundled skill requires an explicit qualified-name load.
 - The proposed short Telegram `/shop` alias is deferred and not implemented.
+- The `/kroger-pick` widget supports only a local TUI using the launch profile;
+  remote gateway attachment and multiplex-profile routing are not supported.
 - Raw Kroger payloads remain necessary for fields not yet modeled.
