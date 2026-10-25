@@ -157,10 +157,13 @@ Optional settings:
 export KROGER_REDIRECT_URI=http://localhost:8080/callback
 export KROGER_DEFAULT_LOCATION_ID=02100998
 export KROGER_DEFAULT_FULFILLMENT=csp
-export KROGER_TOKEN_FILE=~/.kroger_tokens.json
+export KROGER_TOKEN_FILE=$HERMES_HOME/.kroger_tokens.json
 ```
 
 `KROGER_DEFAULT_FULFILLMENT` accepts `ais`, `csp`, `dth`, or `sth`.
+`KROGER_TOKEN_FILE` defaults to `$HERMES_HOME/.kroger_tokens.json`, falling back
+to `~/.kroger_tokens.json` when `HERMES_HOME` is unset, so the Hermes process and
+the shells it spawns (which may have a different `HOME`) share one token file.
 Location-specific product calls are needed for price, fulfillment, aisle, and
 inventory data. The token file contains user OAuth credentials, is written with
 `0600` permissions, and must never be committed.
@@ -177,7 +180,7 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger widget <install|status|remove>
 /kroger version
 /kroger login
-/kroger code <authorization-code>
+/kroger code <redirect-url|authorization-code>
 /kroger status
 /kroger logout
 ```
@@ -225,9 +228,16 @@ The manual OAuth workflow for containerized gateways is:
 
 1. Run `/kroger login`.
 2. Open the returned Kroger authorization URL and approve access.
-3. Copy the `code` query parameter from the redirect URL.
-4. Run `/kroger code <authorization-code>`.
+3. Copy the full redirect URL from the browser address bar (the page itself
+   will not load; that is expected).
+4. Run `/kroger code <redirect-url>`. A bare `code` value also works.
 5. Confirm with `/kroger status`.
+
+When the pasted redirect carries `state`, it must match the most recent
+`/kroger login` (valid for 15 minutes) or the code is never sent to Kroger.
+Authorization codes are single-use and short-lived; an expired or reused code
+reports `Kroger rejected the authorization code` and needs a fresh
+`/kroger login`.
 
 ## Conversational Skill and Tools
 

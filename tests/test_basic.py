@@ -247,6 +247,222 @@ def test_invalid_refresh_token_is_cleared_and_requests_login(tmp_path, monkeypat
     assert not Path(config.token_file).exists()
 
 
+class _FakeTokenResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+
+_GOOD_USER_TOKENS = {
+    "access_token": "user-access",
+    "refresh_token": "user-refresh",
+    "expires_in": 1800,
+    "scope": "product.compact cart.basic:write profile.compact",
+}
+
+
+@pytest.mark.parametrize(
+    "pasted, expected",
+    [
+        ("abc123", ("abc123", None)),
+        ("  abc123  ", ("abc123", None)),
+        ("http://localhost:8080/callback?code=abc123&state=s1", ("abc123", "s1")),
+        ("localhost:8080/callback?state=s1&code=abc123", ("abc123", "s1")),
+        ("?code=abc123", ("abc123", None)),
+        ("code=abc123&state=s1", ("abc123", "s1")),
+        ("http://localhost:8080/callback?code=abc123&state=s1#frag", ("abc123", "s1")),
+    ],
+)
+def test_parse_authorization_response_accepts_code_or_redirect(pasted, expected):
+    from kroger_shopping.auth import parse_authorization_response
+
+    assert parse_authorization_response(pasted) == expected
+
+
+@pytest.mark.parametrize(
+    "pasted, message",
+    [
+        ("", "empty"),
+        ("http://localhost:8080/callback?state=s1", "No `code` parameter"),
+        (
+            "http://localhost:8080/callback?error=access_denied&error_description=The+resource+owner+denied+the+request",
+            "not granted: The resource owner denied the request",
+        ),
+    ],
+)
+def test_parse_authorization_response_rejects_unusable_input(pasted, message):
+    from kroger_shopping.auth import parse_authorization_response
+
+    with pytest.raises(KrogerAuthError, match=message):
+        parse_authorization_response(pasted)
+
+
+def test_begin_login_persists_state_used_in_url(tmp_path):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+
+    url = auth.begin_login()
+
+    state = parse_qs(urlparse(url).query)["state"][0]
+    state_file = Path(f"{config.token_file}.login-state")
+    assert json.loads(state_file.read_text())["state"] == state
+    assert stat.S_IMODE(state_file.stat().st_mode) == 0o600
+
+
+def test_code_exchange_with_matching_state_saves_tokens_and_clears_state(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+    state = parse_qs(urlparse(auth.begin_login()).query)["state"][0]
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(kwargs["data"])
+        return _FakeTokenResponse(200, _GOOD_USER_TOKENS)
+
+    monkeypatch.setattr("kroger_shopping.auth.requests.post", fake_post)
+
+    tokens = auth.exchange_code_for_tokens("abc123", state=state)
+
+    assert tokens.access_token == "user-access"
+    assert calls[0]["code"] == "abc123"
+    assert Path(config.token_file).exists()
+    assert not Path(f"{config.token_file}.login-state").exists()
+
+
+def test_code_exchange_with_mismatched_state_never_calls_kroger(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+    auth.begin_login()
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: pytest.fail("code must not be sent when state mismatches"),
+    )
+
+    with pytest.raises(KrogerAuthError, match="different /kroger login"):
+        auth.exchange_code_for_tokens("abc123", state="forged-state")
+
+    assert not Path(config.token_file).exists()
+
+
+def test_code_exchange_with_state_but_no_pending_login_is_rejected(tmp_path, monkeypatch):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: pytest.fail("code must not be sent without a pending login"),
+    )
+
+    with pytest.raises(KrogerAuthError, match="No /kroger login is in progress"):
+        auth.exchange_code_for_tokens("abc123", state="any-state")
+
+
+def test_code_exchange_with_expired_pending_login_is_rejected(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    auth = KrogerAuthClient(config)
+    state = parse_qs(urlparse(auth.begin_login()).query)["state"][0]
+    state_file = Path(f"{config.token_file}.login-state")
+    state_file.write_text(json.dumps({"state": state, "created_at": time.time() - 3600}))
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: pytest.fail("code must not be sent for an expired login"),
+    )
+
+    with pytest.raises(KrogerAuthError, match="login has expired"):
+        auth.exchange_code_for_tokens("abc123", state=state)
+
+    assert not state_file.exists()
+
+
+def test_bare_code_exchange_skips_state_check(tmp_path, monkeypatch):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: _FakeTokenResponse(200, _GOOD_USER_TOKENS),
+    )
+
+    assert auth.exchange_code_for_tokens("abc123").access_token == "user-access"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"error": "invalid_request", "error_description": "invalid code"},
+        {"error": "invalid_grant", "error_description": "authorization code expired"},
+    ],
+)
+def test_rejected_authorization_code_gets_actionable_error(tmp_path, monkeypatch, payload):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: _FakeTokenResponse(400, payload),
+    )
+
+    with pytest.raises(KrogerAuthError, match="expired, was already used.*Run /kroger login"):
+        auth.exchange_code_for_tokens("stale-code")
+
+
+def test_redirect_uri_mismatch_names_the_configured_uri(tmp_path, monkeypatch):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    payload = {
+        "error": "invalid_request",
+        "error_description": "The redirect_uri did not match the registered redirect_uri for this application",
+    }
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: _FakeTokenResponse(400, payload),
+    )
+
+    with pytest.raises(KrogerAuthError, match=r"redirect URI http://localhost:8080/callback.*KROGER_REDIRECT_URI"):
+        auth.exchange_code_for_tokens("abc123")
+
+
+def test_bad_client_credentials_on_code_exchange_keep_raw_error(tmp_path, monkeypatch):
+    auth = KrogerAuthClient(make_config(tmp_path))
+    payload = {"error": "unauthorized", "error_description": "invalid credentials"}
+    monkeypatch.setattr(
+        "kroger_shopping.auth.requests.post",
+        lambda *a, **k: _FakeTokenResponse(401, payload),
+    )
+
+    with pytest.raises(KrogerAuthError, match="status 401.*invalid credentials"):
+        auth.exchange_code_for_tokens("abc123")
+
+
+def test_default_token_file_follows_hermes_home(monkeypatch, tmp_path):
+    from kroger_shopping.config import default_token_file
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    assert default_token_file() == str(tmp_path / "hermes" / ".kroger_tokens.json")
+    assert KrogerConfig("id", "secret").token_file == default_token_file()
+
+
+def test_default_token_file_falls_back_to_home(monkeypatch, tmp_path):
+    from kroger_shopping.config import default_token_file
+
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    assert default_token_file() == str(tmp_path / "home" / ".kroger_tokens.json")
+
+
+def test_config_from_env_token_file_override_and_hermes_home_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("KROGER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("KROGER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    monkeypatch.delenv("KROGER_TOKEN_FILE", raising=False)
+    assert KrogerConfig.from_env().token_file == str(tmp_path / "hermes" / ".kroger_tokens.json")
+
+    monkeypatch.setenv("KROGER_TOKEN_FILE", "~/custom-tokens.json")
+    assert KrogerConfig.from_env().token_file == str(tmp_path / "home" / "custom-tokens.json")
+
+
 def test_search_uses_app_token(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     calls = []

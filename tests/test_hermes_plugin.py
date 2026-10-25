@@ -244,6 +244,57 @@ def test_direct_kroger_handler_returns_usage_without_constructing_client(monkeyp
     assert handle_kroger('search "unterminated') == "Validation error: No closing quotation"
 
 
+def test_code_command_parses_pasted_redirect_and_passes_state(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    exchanged = []
+
+    class Auth:
+        def exchange_code_for_tokens(self, code, state=None):
+            exchanged.append((code, state))
+            return Mock(scope="product.compact cart.basic:write")
+
+    monkeypatch.setattr(hermes_command, "get_client", lambda: Mock(auth=Auth()))
+
+    output = handle_kroger("code http://localhost:8080/callback?code=abc123&state=s1")
+
+    assert exchanged == [("abc123", "s1")]
+    assert output == "Kroger authentication saved. Scope: product.compact cart.basic:write."
+
+    handle_kroger("code abc456")
+    assert exchanged[-1] == ("abc456", None)
+
+
+def test_code_command_reports_parse_errors_without_calling_kroger(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    class Auth:
+        def exchange_code_for_tokens(self, code, state=None):
+            raise AssertionError("must not exchange an unparseable redirect")
+
+    monkeypatch.setattr(hermes_command, "get_client", lambda: Mock(auth=Auth()))
+
+    output = handle_kroger("code http://localhost:8080/callback?error=access_denied")
+
+    assert output.startswith("Authentication error: Kroger authorization was not granted: access_denied")
+    assert handle_kroger("code") == "Usage: /kroger code <redirect-url|authorization-code>"
+
+
+def test_login_command_starts_a_stateful_login(monkeypatch):
+    from kroger_shopping import hermes_command
+
+    auth = Mock()
+    auth.begin_login.return_value = "https://api.kroger.com/v1/connect/oauth2/authorize?state=s1"
+    monkeypatch.setattr(hermes_command, "get_client", lambda: Mock(auth=auth))
+
+    output = handle_kroger("login")
+
+    auth.begin_login.assert_called_once_with()
+    auth.authorization_url.assert_not_called()
+    assert "https://api.kroger.com/v1/connect/oauth2/authorize?state=s1" in output
+    assert "/kroger code <redirect-url>" in output
+
+
 @pytest.fixture(params=["raw", "direct", "legacy"])
 def dispatch_kroger(request, monkeypatch):
     from kroger_shopping import hermes_command

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from .data_interface import KrogerDataFetcher
 
 from . import receipts
+from .auth import parse_authorization_response
 from .client import KrogerClient
 from .exceptions import KrogerError, KrogerValidationError
 from .public_payloads import RECOMMENDATIONS_SCHEMA, recommendation_products
@@ -47,7 +48,7 @@ def help_text() -> str:
         "- /kroger clipcoupon all --dry-run\n"
         "- /kroger version\n"
         "- /kroger login\n"
-        "- /kroger code <authorization-code>\n"
+        "- /kroger code <redirect-url|authorization-code>\n"
         "- /kroger status\n"
         "- /kroger logout\n"
         "- /kroger -h (help)"
@@ -241,23 +242,23 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
     if subcommand == "login":
         client = get_client()
         try:
-            url = client.auth.authorization_url()
+            url = client.auth.begin_login()
             return (
-                "Open this Kroger authorization URL, sign in, then copy the `code` "
-                "query parameter from the redirect URL.\n"
+                "Open this Kroger authorization URL, sign in, and approve access.\n"
                 f"{url}\n\n"
-                "Finish with: /kroger code <authorization-code>"
+                "Then paste the redirect URL from the browser address bar "
+                "(or just its `code` value): /kroger code <redirect-url>"
             )
         except KrogerError as exc:
             return f"Error: {exc}"
 
     if subcommand == "code":
         if not args:
-            return "Usage: /kroger code <authorization-code>"
+            return "Usage: /kroger code <redirect-url|authorization-code>"
         client = get_client()
-        code = " ".join(args).strip()
         try:
-            tokens = client.auth.exchange_code_for_tokens(code)
+            code, state = parse_authorization_response(" ".join(args))
+            tokens = client.auth.exchange_code_for_tokens(code, state=state)
             scope = f" Scope: {tokens.scope}." if tokens.scope else ""
             return f"Kroger authentication saved.{scope}"
         except KrogerError as exc:

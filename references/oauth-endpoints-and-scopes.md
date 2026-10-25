@@ -20,7 +20,11 @@ The `/oauth2/` segment is required. Shorter `/connect/authorize` and
 - Use authorization code for cart writes.
 - Use refresh tokens when available instead of asking the user to re-authorize.
 - Store user tokens at `KROGER_TOKEN_FILE` or the default
-  `~/.kroger_tokens.json` with `0600` permissions.
+  `$HERMES_HOME/.kroger_tokens.json` (else `~/.kroger_tokens.json`) with `0600`
+  permissions.
+- `/kroger login` persists the OAuth `state` beside the token file
+  (`<token-file>.login-state`, `0600`, 15-minute lifetime); `/kroger code`
+  verifies it when the pasted redirect includes `state`.
 
 ## Configuration
 
@@ -28,7 +32,8 @@ The `/oauth2/` segment is required. Shorter `/connect/authorize` and
   operations. Local `receipts`, `buyagain`, and `version` commands need no
   credentials. Pull uses a signed-in CDP browser instead of developer OAuth.
 - `KROGER_REDIRECT_URI` defaults to `http://localhost:8080/callback`.
-- `KROGER_TOKEN_FILE` defaults to `~/.kroger_tokens.json`.
+- `KROGER_TOKEN_FILE` defaults to `$HERMES_HOME/.kroger_tokens.json`, or
+  `~/.kroger_tokens.json` when `HERMES_HOME` is unset.
 
 The environment belongs to the Python process running Hermes. In containerized
 deployments, setting variables only in an interactive shell does not update the
@@ -41,8 +46,8 @@ Use the manual code-paste flow:
 1. Run `/kroger login`.
 2. Open the returned Kroger authorization URL.
 3. Sign in and approve scopes.
-4. Copy the `code` query parameter from the redirect URL.
-5. Run `/kroger code <authorization-code>`.
+4. Copy the full redirect URL from the browser address bar.
+5. Run `/kroger code <redirect-url>` (a bare `code` value also works).
 6. Confirm with `/kroger status`.
 
 The module CLI provides `status` but does not provide `login`, `code`, or
