@@ -63,6 +63,29 @@ function fakeSdk() {
 
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
+function renderedText(node) {
+  if (node == null) return []
+  if (typeof node === 'string' || typeof node === 'number') return [String(node)]
+  const widgetText = (node.props?.widgets ?? []).flatMap(widget => renderedText(widget.children))
+  return [...widgetText, ...(node.children ?? []).flatMap(renderedText)]
+}
+
+function readyGridText(app, sdk) {
+  const rendered = app.render({ cols: 120, state: sdk.state, t: {
+    color: {
+      border: 'border',
+      error: 'error',
+      label: 'label',
+      muted: 'muted',
+      primary: 'primary',
+      success: 'success',
+      text: 'text',
+      warn: 'warn'
+    }
+  } })
+  return renderedText(rendered)
+}
+
 test('loads versioned recommendations and selects the first in-stock product', async () => {
   const sdk = fakeSdk()
   const calls = []
@@ -79,6 +102,40 @@ test('loads versioned recommendations and selects the first in-stock product', a
   assert.deepEqual(calls, [['-m', 'kroger_shopping', 'recommend', 'milk', '--limit', '10', '--json']])
   assert.equal(sdk.state.phase, 'ready')
   assert.equal(sdk.state.selectedIndex, 1)
+})
+
+test('renders the known unwanted-ingredient count on each product card', async () => {
+  const sdk = fakeSdk()
+  const app = createKrogerPicker(sdk, {
+    runPython: async () => ({ stderr: '', stdout: payload([{ ...product('one'), unwanted_ingredient_count: 2 }]) })
+  })
+
+  sdk.state = app.init('milk')
+  await flush()
+
+  assert.ok(readyGridText(app, sdk).includes('Unwanted: 2'))
+})
+
+test('renders unavailable ingredient data as unknown rather than zero unwanted ingredients', async () => {
+  const sdk = fakeSdk()
+  const app = createKrogerPicker(sdk, {
+    runPython: async () => ({
+      stderr: '',
+      stdout: payload([{
+        ...product('one'),
+        ingredient_data_known: false,
+        unwanted_ingredient_count: null,
+        unwanted_ingredients: []
+      }])
+    })
+  })
+
+  sdk.state = app.init('milk')
+  await flush()
+
+  const text = readyGridText(app, sdk)
+  assert.ok(text.includes('Unwanted: unknown'))
+  assert.ok(!text.includes('Unwanted: 0'))
 })
 
 test('navigation skips unavailable products and selection does not write to the cart', async () => {

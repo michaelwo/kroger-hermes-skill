@@ -49,6 +49,13 @@ function parseRecommendations(stdout) {
   return payload.products
 }
 
+function unwantedLabel(product) {
+  if (product.ingredient_data_known !== true || product.unwanted_ingredient_count == null) {
+    return 'Unwanted: unknown'
+  }
+  return `Unwanted: ${product.unwanted_ingredient_count}`
+}
+
 export function createKrogerPicker(sdk, { runPython = defaultRunPython } = {}) {
   let app
 
@@ -168,6 +175,7 @@ export function createKrogerPicker(sdk, { runPython = defaultRunPython } = {}) {
             children: h(sdk.Box, { borderColor: color, borderStyle: 'round', flexDirection: 'column', paddingX: 1 },
               text(`${selected ? '› ' : ''}${product.description}`, disabled ? t.color.muted : t.color.text),
               text(`${price}  ·  ${product.size || 'size N/A'}  ·  ${product.unit_price || 'unit N/A'}`, t.color.muted),
+              text(unwantedLabel(product), t.color.muted),
               text(`UPC ${product.upc}${disabled ? '  ·  OUT OF STOCK' : ''}`, disabled ? t.color.error : t.color.label),
               product.last_purchased_date ? text(`Last purchased ${product.last_purchased_date}`, t.color.muted) : null
             )
