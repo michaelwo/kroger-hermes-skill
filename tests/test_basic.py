@@ -1607,6 +1607,20 @@ def test_preference_scoring_penalizes_unwanted_ingredients_with_explanation():
     assert not any("Ingredients not assessed" in warning for warning in score.warnings)
 
 
+def test_seed_oil_unwanted_matching_covers_source_list_and_aliases():
+    client = KrogerClient.__new__(KrogerClient)
+
+    matches = client._match_unwanted_ingredients(
+        "Soybean oil, canola oil, corn oil, sunflower oil, safflower oil, "
+        "cottonseed oil, grapeseed oil, rice bran oil, peanut oil, flaxseed oil, "
+        "rapeseed oil, sesame oil, walnut oil, palm kernel oil",
+        PreferenceProfile().ingredient_rules,
+    )
+
+    assert [match["label"] for match in matches] == ["Seed oils"]
+
+
+
 def test_preference_scoring_warns_without_penalizing_when_ingredients_missing():
     client = KrogerClient.__new__(KrogerClient)
     product = make_product("0001111040101")

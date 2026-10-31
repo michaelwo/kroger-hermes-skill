@@ -262,7 +262,32 @@ SIMPLE_TRUTH_UNWANTED_INGREDIENT_RULES = [
     IngredientPreferenceRule('tetrasodium edta', 'Tetrasodium EDTA'),
     IngredientPreferenceRule('trans fatty acids', 'Trans fatty acids'),
     IngredientPreferenceRule('vanillin', 'Vanillin, synthetic'),
-    IngredientPreferenceRule('synthetic vanillin', 'Vanillin, synthetic')
+    IngredientPreferenceRule('synthetic vanillin', 'Vanillin, synthetic'),
+    IngredientPreferenceRule('soybean oil', 'Seed oils'),
+    IngredientPreferenceRule('soya oil', 'Seed oils'),
+    IngredientPreferenceRule('canola oil', 'Seed oils'),
+    IngredientPreferenceRule('rapeseed oil', 'Seed oils'),
+    IngredientPreferenceRule('corn oil', 'Seed oils'),
+    IngredientPreferenceRule('maize oil', 'Seed oils'),
+    IngredientPreferenceRule('sunflower oil', 'Seed oils'),
+    IngredientPreferenceRule('safflower oil', 'Seed oils'),
+    IngredientPreferenceRule('cottonseed oil', 'Seed oils'),
+    IngredientPreferenceRule('grapeseed oil', 'Seed oils'),
+    IngredientPreferenceRule('rice bran oil', 'Seed oils'),
+    IngredientPreferenceRule('peanut oil', 'Seed oils'),
+    IngredientPreferenceRule('groundnut oil', 'Seed oils'),
+    IngredientPreferenceRule('flaxseed oil', 'Seed oils'),
+    IngredientPreferenceRule('flax oil', 'Seed oils'),
+    IngredientPreferenceRule('almond oil', 'Seed oils'),
+    IngredientPreferenceRule('hazelnut oil', 'Seed oils'),
+    IngredientPreferenceRule('hemp seed oil', 'Seed oils'),
+    IngredientPreferenceRule('macadamia nut oil', 'Seed oils'),
+    IngredientPreferenceRule('pecan oil', 'Seed oils'),
+    IngredientPreferenceRule('pine nut oil', 'Seed oils'),
+    IngredientPreferenceRule('pumpkin seed oil', 'Seed oils'),
+    IngredientPreferenceRule('sesame oil', 'Seed oils'),
+    IngredientPreferenceRule('walnut oil', 'Seed oils'),
+    IngredientPreferenceRule('palm kernel oil', 'Seed oils')
 ]
 
 
