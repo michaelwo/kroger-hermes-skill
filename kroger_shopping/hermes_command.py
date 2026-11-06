@@ -39,8 +39,7 @@ def help_text() -> str:
         "- /kroger search <term> (shortcut: -s)\n"
         "- /kroger recommend <term> (shortcut: -r)\n"
         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
-        "- /kroger receipts\n"
-        "- /kroger pull\n"
+        "- /kroger receipts [pull]\n"
         "- /kroger buyagain\n"
         "- /kroger widget <install|status|remove>\n"
         "- /kroger buysave\n"
@@ -103,14 +102,11 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
         return _buysave_text(args)
 
     if subcommand == "receipts":
+        if list(args) == ["pull"]:
+            return _pull_purchase_history_text()
         if args:
-            return "Usage: /kroger receipts"
+            return "Usage: /kroger receipts [pull]"
         return _receipt_history_text()
-
-    if subcommand == "pull":
-        if args:
-            return "Usage: /kroger pull"
-        return _pull_purchase_history_text()
 
     if subcommand == "clipcoupon":
         return _clipcoupon_text(args)
@@ -351,6 +347,6 @@ def _buy_again_text() -> str:
 
     lines = [f"Previously purchased products: {len(upcs)}"]
     if len(names) != len(upcs):
-        lines.append("Some product names are missing from local history. Run /kroger pull to refresh.")
+        lines.append("Some product names are missing from local history. Run /kroger receipts pull to refresh.")
     lines.extend(f"- {names.get(upc, 'Name unavailable')} | UPC: `{upc}`" for upc in upcs)
     return "\n".join(lines)

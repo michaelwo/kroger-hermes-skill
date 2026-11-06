@@ -43,7 +43,7 @@ in `references/openapi/` are the contract source for endpoint and schema checks.
 
 ## Purchase History
 
-- `/kroger pull` and module CLI `pull` use the signed-in Kroger website through
+- `/kroger receipts pull` uses the signed-in Kroger website through
   Chrome DevTools Protocol, independently of developer API OAuth.
 - Search: `https://www.kroger.com/atlas/v1/post-order/v1/purchase-history-search`
 - Receipt details: `POST https://www.kroger.com/atlas/v1/purchase-history/v2/details`

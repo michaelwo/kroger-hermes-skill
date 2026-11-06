@@ -17,8 +17,7 @@ endorsed by, or sponsored by The Kroger Co., Kroger, or Simple Truth.
 
 - `/kroger search <term>` — compact direct search
 - `/kroger recommend <term>` — compact receipt-aware recommendations
-- `/kroger pull` — refresh local purchase history and titles through a signed-in CDP tab
-- `/kroger receipts` — local receipt order numbers and dates
+- `/kroger receipts [pull]` — list local receipt metadata, or refresh purchase history and titles through a signed-in CDP tab
 - `/kroger buyagain` — distinct purchased UPCs with locally saved purchase-history names
 - `/kroger version` — installed plugin version
 - `/kroger add <UPC> [quantity]` — deterministic cart add/increase
@@ -71,11 +70,10 @@ Receipt history is loaded from repository-level `receipts/purchase-history.json`
 to `kroger_shopping/receipts/purchase-history.json` only when the root directory does not exist.
 The shared cache refreshes when JSON file metadata changes. `/kroger receipts` lists
 order numbers and dates without API access; `/kroger buyagain` lists each UPC
-once using names saved by `/kroger pull`, without catalog requests. Missing names
-show `Name unavailable` with a reminder to refresh using `/kroger pull`.
+once using names saved by `/kroger receipts pull`, without catalog requests. Missing names
+show `Name unavailable` with a reminder to refresh using `/kroger receipts pull`.
 Receipt inspection commands accept no arguments and are exclusive to the direct
-`/kroger` interface. Pull also accepts no arguments and is available as
-`python -m kroger_shopping pull`. It writes the root export, using
+`/kroger` interface. `/kroger receipts pull` refreshes the root export, using
 `CDP_HOST`/`CDP_PORT` (default `127.0.0.1:9222`) and a signed-in Purchase History
 tab. Receipt-detail titles are restricted to UPCs already on the order.
 

@@ -47,12 +47,16 @@ def test_pull_command_writes_summary(monkeypatch, tmp_path):
         "get_client",
         Mock(side_effect=AssertionError("client created")),
     )
-    output = handle_kroger("pull")
+    output = handle_kroger("receipts pull")
     assert output.startswith("Wrote 65 orders to `")
     assert str(path) in output
     assert "/kroger receipts" in output
-    assert handle_kroger("pull extra") == "Usage: /kroger pull"
-    assert "/kroger pull" in handle_kroger()
+    assert handle_kroger("receipts pull extra") == "Usage: /kroger receipts [pull]"
+    assert "/kroger receipts [pull]" in handle_kroger()
+
+
+def test_pull_command_is_no_longer_standalone():
+    assert handle_kroger("pull").startswith("Unknown subcommand: pull")
 
 
 def test_pull_command_returns_cdp_error(monkeypatch):
@@ -63,7 +67,7 @@ def test_pull_command_returns_cdp_error(monkeypatch):
         "pull_purchase_history",
         Mock(side_effect=CdpError("Chrome DevTools is not reachable at 127.0.0.1:9222.")),
     )
-    assert handle_kroger("pull") == "Chrome DevTools is not reachable at 127.0.0.1:9222."
+    assert handle_kroger("receipts pull") == "Chrome DevTools is not reachable at 127.0.0.1:9222."
 
 
 def test_pull_preserves_names_for_offline_buyagain(monkeypatch, tmp_path):

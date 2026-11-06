@@ -174,8 +174,7 @@ inventory data. The token file contains user OAuth credentials, is written with
 /kroger search <term>
 /kroger recommend <term>
 /kroger add <UPC> [quantity]
-/kroger receipts
-/kroger pull
+/kroger receipts [pull]
 /kroger buyagain
 /kroger widget <install|status|remove>
 /kroger version
@@ -279,14 +278,13 @@ When the root `receipts/` directory does not exist, the loader uses
 `kroger_shopping/receipts/purchase-history.json` instead. An existing root
 directory takes precedence even when empty.
 
-`/kroger pull` writes the root `receipts/purchase-history.json` (creating the
+`/kroger receipts pull` writes the root `receipts/purchase-history.json` (creating the
 root directory even when a bundled export exists) from a Chrome tab already
 signed in on Purchase History (`https://www.kroger.com/mypurchases`) with remote debugging
 on `127.0.0.1:9222`. It does not type credentials, export cookies, or call the
 developer API. It fetches all search pages, then receipt details in batches of
 eight to obtain product titles and sizes. The command accepts no arguments.
-Equivalent CLI:
-`python -m kroger_shopping pull`. If DevTools is down or the tab is missing, it
+If DevTools is down or the tab is missing, it
 prints a short error and does not write a file. Set `CDP_HOST` and `CDP_PORT`
 in the Hermes process environment to override the default connection. The CDP
 address must be reachable from that process; in a container, loopback refers
@@ -307,7 +305,7 @@ history is identified by filename. Missing or empty history returns
 available only through `/kroger`.
 
 `/kroger buyagain` lists every distinct purchased UPC from the same local receipt
-cache used by `recommend`, sorted by UPC, with names saved by `/kroger pull`.
+cache used by `recommend`, sorted by UPC, with names saved by `/kroger receipts pull`.
 The pull stores receipt-detail titles in each order's `productNames` mapping
 alongside `upcs`. Receipt-detail names combine `description` and size when
 available, and are saved only for UPCs already on that order.
@@ -317,7 +315,7 @@ returns and shares no UPC with the list row stays untitled. Each UPC appears
 once, even when purchased on multiple orders; the latest ISO-dated order with
 a name takes precedence. Buy-again makes no catalog requests
 and requires no API credentials. Missing names show `Name unavailable` with a
-reminder to run `/kroger pull`; older exports containing only UPCs still work.
+reminder to run `/kroger receipts pull`; older exports containing only UPCs still work.
 The command accepts no arguments and lists all products. Use
 `/kroger add <UPC> [quantity]` to add an item to your cart. If no UPCs are recognized,
 it returns `No purchased UPCs found in local receipts.`
@@ -352,7 +350,6 @@ python -m kroger_shopping search <term> [--limit N]
 python -m kroger_shopping recommend <term> [--limit N] [--json]
 python -m kroger_shopping add <UPC> [--quantity N] [--modality PICKUP|DELIVERY]
 python -m kroger_shopping status
-python -m kroger_shopping pull
 ```
 
 The module CLI is deterministic. It does not include the interactive

@@ -535,7 +535,7 @@ def test_receipts_through_adapters(monkeypatch, dispatch_kroger):
         "- Order number: Unavailable | Order date: Unavailable (empty.json)\n"
         "- Order number: 1261107276344089802 | Order date: April 21, 2026"
     )
-    assert dispatch_kroger("receipts extra") == "Usage: /kroger receipts"
+    assert dispatch_kroger("receipts extra") == "Usage: /kroger receipts [pull]"
     monkeypatch.setattr(receipts, "load_receipt_history", lambda: ())
     assert dispatch_kroger("receipts") == "No local purchase history found."
     factory.assert_not_called()
@@ -561,7 +561,7 @@ def test_buyagain_uses_local_names_without_client(monkeypatch, dispatch_kroger, 
     assert "Milk" in output
     if missing_name:
         assert "Name unavailable" in output
-        assert "Run /kroger pull" in output
+        assert "Run /kroger receipts pull" in output
     else:
         assert "Bread" in output
         assert "Name unavailable" not in output

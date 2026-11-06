@@ -114,13 +114,13 @@ Additional constraints:
 - `/kroger receipts` lists order numbers and dates without constructing a client.
   `/kroger buyagain` lists every distinct UPC with a locally exported name, retaining UPCs
   when names are missing. Buy-again must not construct a client or make catalog
-  requests; `/kroger pull` saves matching receipt-detail titles in `productNames`.
+  requests; `/kroger receipts pull` saves matching receipt-detail titles in `productNames`.
   Neither modifies the cart.
   Both reject extra arguments and are unavailable as module CLI or agent tools.
 
 ## Pull and Reload Behavior
 
-- `/kroger pull` and module CLI `pull` write the root receipt export, creating
+- `/kroger receipts pull` writes the root receipt export, creating
   the directory; the bundled fallback is only for readers.
 - CDP defaults to `127.0.0.1:9222`, configurable through `CDP_HOST`/`CDP_PORT`.
 - Pull fetches search pages and receipt details; buy-again performs no network I/O.
