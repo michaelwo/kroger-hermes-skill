@@ -27,7 +27,7 @@ class KrogerConfig:
     client_secret: str
     redirect_uri: str = "http://localhost:8080/callback"
     default_location_id: Optional[str] = "02100998"
-    default_fulfillment: Optional[Union[ProductFulfillment, str]] = ProductFulfillment.CSP
+    default_fulfillment: Optional[Union[ProductFulfillment, str]] = ProductFulfillment.DTH
     token_file: str = field(default_factory=default_token_file)
 
     def __post_init__(self):
@@ -59,7 +59,7 @@ class KrogerConfig:
             default_location_id=os.getenv("KROGER_DEFAULT_LOCATION_ID", "02100998"),
             default_fulfillment=os.getenv(
                 "KROGER_DEFAULT_FULFILLMENT",
-                ProductFulfillment.CSP.value,
+                ProductFulfillment.DTH.value,
             ),
             token_file=os.path.expanduser(token_file) if token_file else default_token_file(),
         )
