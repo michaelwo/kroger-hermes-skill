@@ -495,11 +495,11 @@ def test_search_uses_app_token(tmp_path):
     assert calls == ["app"]
 
 
-def test_config_defaults_to_nora_csp(tmp_path):
+def test_config_defaults_to_nora_dth(tmp_path):
     config = make_config(tmp_path)
 
     assert config.default_location_id == "02100998"
-    assert config.default_fulfillment is ProductFulfillment.CSP
+    assert config.default_fulfillment is ProductFulfillment.DTH
 
 
 def test_config_from_env_parses_default_fulfillment(monkeypatch, tmp_path):
@@ -524,7 +524,7 @@ def test_config_from_env_rejects_invalid_default_fulfillment(monkeypatch):
         KrogerConfig.from_env()
 
 
-def test_search_products_defaults_to_nora_csp(tmp_path):
+def test_search_products_defaults_to_nora_dth(tmp_path):
     client = KrogerClient(make_config(tmp_path))
     calls = []
 
@@ -553,7 +553,7 @@ def test_search_products_defaults_to_nora_csp(tmp_path):
             "filter.term": "milk",
             "filter.limit": 10,
             "filter.locationId": "02100998",
-            "filter.fulfillment": "csp",
+            "filter.fulfillment": "dth",
         }
     ]
 

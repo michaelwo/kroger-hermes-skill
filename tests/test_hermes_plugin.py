@@ -404,7 +404,7 @@ def test_widget_command_rejects_unknown_action_without_touching_client(monkeypat
 
 @pytest.mark.parametrize("raw,expected", [
     ("-s", "Usage: /kroger search <term>"),
-    ("-r", "Usage: /kroger recommend <term>"),
+    ("-r", "Usage: /kroger recommend <term> [--limit N] [--json]"),
     ("-a", "Usage: /kroger add <UPC> [quantity=1]"),
 ])
 def test_shortcut_missing_arguments(monkeypatch, dispatch_kroger, raw, expected):
