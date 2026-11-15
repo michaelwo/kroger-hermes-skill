@@ -1,13 +1,21 @@
 services:
-  codex-dev:
-    build: .
-    image: codex-dev:3.12
-    container_name: codex-dev
+  kroger:
+    image: ghcr.io/anomalyco/opencode:2.3.0
+    container_name: kroger
     environment:
       - KROGER_CLIENT_ID=${KROGER_CLIENT_ID}
       - KROGER_CLIENT_SECRET=${KROGER_CLIENT_SECRET}
+      - KROGER_IPHONE_CLIENT_ID=${KROGER_IPHONE_CLIENT_ID}
+      - KROGER_IPHONE_CLIENT_SECRET=${KROGER_IPHONE_CLIENT_SECRET}
+      - XCODE_MCP_TOKEN=${XCODE_MCP_TOKEN}
+      - SIM_MCP_TOKEN=${SIM_MCP_TOKEN}
     volumes:
       - ~/workspace/skills/kroger-shopping:/workspace
+      - ~/.opencode:/root/.config/opencode
+      - ~/.opencode-share:/root/.local/share/opencode      # ← sessions
+      - ~/.opencode-state:/root/.local/state/opencode      # ← optional but useful
+      - /var/folders:/var/folders:ro #read only access to mcpproxy/xcode/simulator/screenshots
     stdin_open: true
     tty: true
-    command: /bin/bash
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

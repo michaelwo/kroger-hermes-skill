@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Xcode user-specific data
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.moved-aside
+
+# Xcode build products
+build/
+DerivedData/
+*.ipa
+*.app
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local configuration and secrets
+.env
+.env.*
+*.local.xcconfig
+
+# Test artifacts
+*.xcresult
+
+# Purchase history
+ksi/purchase-history.json
