@@ -37,7 +37,7 @@ def help_text() -> str:
     return (
         "Kroger commands:\n"
         "- /kroger search <term> (shortcut: -s)\n"
-        "- /kroger recommend <term> (shortcut: -r)\n"
+        "- /kroger recommend <term> [--limit N] [--json] (shortcut: -r)\n"
         "- /kroger add <UPC> [qty] (shortcut: -a)\n"
         "- /kroger receipts [pull]\n"
         "- /kroger buyagain\n"
@@ -108,6 +108,11 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
             return "Usage: /kroger receipts [pull]"
         return _receipt_history_text()
 
+    if subcommand == "digitalcoupon":
+        if args and args[0] == "clip":
+            return _clipcoupon_text(args[1:])
+        return "Usage: /kroger digitalcoupon clip [--dry-run]"
+
     if subcommand == "clipcoupon":
         return _clipcoupon_text(args)
 
@@ -133,17 +138,28 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
 
     if subcommand == "recommend":
         if not args:
-            return "Usage: /kroger recommend <term>"
+            return "Usage: /kroger recommend <term> [--limit N] [--json]"
         client = get_client()
-        json_output = args[0] == "--json"
-        term_args = args[1:] if json_output else args
-        if not term_args:
-            if json_output:
-                return "Usage: /kroger recommend --json <term>"
-            return "Usage: /kroger recommend <term>"
-        term = " ".join(term_args)
+        limit = 10
+        json_output = False
+        remaining = list(args)
+        if "--limit" in remaining:
+            idx = remaining.index("--limit")
+            if idx + 1 >= len(remaining):
+                return "Usage: /kroger recommend <term> [--limit N] [--json]"
+            try:
+                limit = int(remaining[idx + 1])
+            except ValueError:
+                return "Validation error: --limit must be an integer"
+            del remaining[idx : idx + 2]
+        if remaining and remaining[0] == "--json":
+            json_output = True
+            remaining = remaining[1:]
+        if not remaining:
+            return "Usage: /kroger recommend <term> [--limit N] [--json]"
+        term = " ".join(remaining)
         try:
-            results = client.ranked_search_products(term, limit=10)
+            results = client.ranked_search_products(term, limit=limit)
             if json_output:
                 return json.dumps(
                     {
@@ -308,12 +324,12 @@ def _clipcoupon_text(args: Sequence[str]) -> str:
     from .purchase_history import CdpError
 
     wanted = list(args)
-    if wanted == ["all", "--dry-run"]:
+    if wanted == ["--dry-run"]:
         runner = dry_run
-    elif wanted == ["all"]:
+    elif wanted == []:
         runner = clip
     else:
-        return "Usage: /kroger clipcoupon all [--dry-run]"
+        return "Usage: /kroger digitalcoupon clip [--dry-run]"
     try:
         return runner()
     except CdpError as exc:
