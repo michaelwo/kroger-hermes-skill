@@ -43,8 +43,9 @@ def help_text() -> str:
         "- /kroger buyagain\n"
         "- /kroger widget <install|status|remove>\n"
         "- /kroger buysave\n"
-        "- /kroger clipcoupon all\n"
-        "- /kroger clipcoupon all --dry-run\n"
+        "- /kroger digitalcoupon clip\n"
+        "- /kroger digitalcoupon clip --dry-run\n"
+        "- /kroger clipcoupon all (legacy)\n"
         "- /kroger version\n"
         "- /kroger login\n"
         "- /kroger code <redirect-url|authorization-code>\n"
@@ -182,7 +183,7 @@ def handle_kroger_args(subcommand: str, args: Sequence[str]) -> str:
                 unwanted = (
                     str(score.unwanted_ingredient_count)
                     if score.unwanted_ingredient_count is not None
-                    else "unknown"
+                    else "N/A"
                 )
                 matches = "; ".join(score.unwanted_ingredients[:3])
                 if len(score.unwanted_ingredients) > 3:

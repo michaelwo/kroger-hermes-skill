@@ -151,6 +151,15 @@ def normalize_ingredient_text(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _is_meaningful_ingredient_text(text: str) -> bool:
+    if not text:
+        return False
+    normalized = text.strip().lower()
+    if not normalized or normalized == "ingredient information not available":
+        return False
+    return True
+
+
 def extract_ingredient_text(
     raw: Optional[dict[str, Any]],
     nutrition_information: Optional[list[ProductNutritionInformation]] = None,
@@ -159,8 +168,9 @@ def extract_ingredient_text(
     fields = []
 
     for index, nutrition in enumerate(nutrition_information or []):
-        if nutrition.ingredient_statement:
-            values.append(nutrition.ingredient_statement)
+        stmt = nutrition.ingredient_statement
+        if stmt and _is_meaningful_ingredient_text(stmt):
+            values.append(stmt)
             fields.append(f"nutrition_information[{index}].ingredient_statement")
 
     if values or not raw:
@@ -172,7 +182,7 @@ def extract_ingredient_text(
                 next_path = f"{path}.{key}" if path else str(key)
                 if "ingredient" in str(key).lower():
                     extracted = stringify_ingredient_value(nested)
-                    if extracted:
+                    if extracted and _is_meaningful_ingredient_text(extracted):
                         values.append(extracted)
                         fields.append(next_path)
                 visit(nested, next_path)

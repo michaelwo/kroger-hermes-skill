@@ -108,7 +108,7 @@ def _recommend(client: KrogerClient, term: str, limit: int, *, json_output: bool
         unwanted = (
             str(score.unwanted_ingredient_count)
             if score.unwanted_ingredient_count is not None
-            else "unknown"
+            else "N/A"
         )
         purchased = ""
         if item.previously_purchased and item.last_purchased_date:
